@@ -1,0 +1,45 @@
+# ===========================
+# 1. IDE & SYSTEM (Global)
+# ===========================
+.idea/
+.vscode/
+*.DS_Store
+/shelf/
+/workspace.xml
+
+# ===========================
+# 2. BACKEND (Python/FastAPI)
+# ===========================
+# compiled files
+__pycache__/
+*.pyc
+
+# Virtual Environment (Very Important!)
+.venv/
+venv/
+env/
+
+# Local Environment Variables
+.env
+
+# Database (If you use SQLite locally)
+*.sqlite3
+*.db
+
+# ===========================
+# 3. FRONTEND (React)
+# ===========================
+# Dependencies (The heavy folder)
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local Env
+.env.local
