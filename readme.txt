@@ -1,16 +1,9 @@
-in terminal
-cd into FastAPI folder then
-write .\.venv\Scripts\activate (to activate the virtual environment)
-then write python .\main.py  (therefore application will start)
-
-
-
 First time cloning project:
 
     1. clone the project via github link
 
     2. in terminal run the following commands
-        cd .\fastAPI                        (to go inside backend folder)
+        cd .\FastAPI                        (to go inside backend folder)
         python -m venv venv                 (to create the virtual environment)
         .\venv\Scripts\activate             (to activate the virtual environment)
         pip install -r requirements.txt     (to install libraries that are mentioned in requirements.txt)
@@ -23,14 +16,21 @@ First time cloning project:
 
 
 
-Everytime developing in project write in terminal:
+Everytime developing the project write in terminal:
 
-    git pull origin main 
+    
+    1. git pull origin main 
+    2. make sure you are on branch not the main project !!!!!
+    
+    3. run the following commands 
+        in Terminal 1: 
+        cd .\FastAPI
+        .\venv\Scripts\activate
+        uvicorn main:app --reload
 
-    cd backend
-    .\venv\Scripts\activate
-    pip install -r requirements.txt     (if there is new library added in requirements.txt)
-    uvicorn main:app --reload
+        in new terminal (Terminal 2):
+        cd frontend
+        npm run dev 
 
-    cd frontend
-    npm run dev 
+    4. if you want to add new library related to fastAPI after installing the library run the following
+        
