@@ -1,0 +1,494 @@
+# Implementation Plan
+
+- [ ] 1. Set up project structure and database foundation
+  - Create directory structure for microservices (auth_service, schedule_service, attendance_service, ai_service, notification_service)
+  - Set up shared utilities module for common code (database connection, models, config)
+  - Create PostgreSQL database schema with all tables (users, api_keys, courses, classes, class_enrollments, attendance_sessions, attendance_records, face_encodings, notifications)
+  - Add database indexes for performance optimization
+  - Create database migration scripts using Alembic
+  - Set up Redis connection for caching and session management
+  - Create base configuration files for each service (config.py with environment variables)
+  - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5_
+
+- [ ] 2. Implement Authentication Service
+  - [ ] 2.1 Create user authentication endpoints
+    - Implement POST /api/auth/login endpoint with email/password validation
+    - Implement POST /api/auth/refresh endpoint for token refresh
+    - Create password hashing utilities using bcrypt
+    - Implement JWT token generation with user role and permissions
+    - Implement JWT token validation middleware
+    - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
+  - [ ] 2.2 Implement API key management for Edge Agents
+    - Create API key generation utility with secure random generation
+    - Implement API key hashing and storage in database
+    - Create API key validation function
+    - Implement API key expiration checking
+    - _Requirements: 10.2, 10.3_
+  - [ ] 2.3 Create user management endpoints
+    - Implement user CRUD operations (create, read, update)
+    - Add role-based access control decorators
+    - Create user profile retrieval endpoint
+    - _Requirements: 13.1, 13.2, 13.3_
+  - [ ]* 2.4 Write authentication service tests
+    - Create unit tests for JWT generation and validation
+    - Write tests for password hashing and verification
+    - Test API key validation logic
+    - Test role-based access control
+    - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
+
+- [ ] 3. Implement Schedule Service
+  - [ ] 3.1 Create course and class management endpoints
+    - Implement POST /api/schedule endpoint for creating classes (supervisor only)
+    - Implement PUT /api/schedule/{id} endpoint for updating classes (supervisor only)
+    - Implement DELETE /api/schedule/{id} endpoint for deleting classes (supervisor only)
+    - Implement GET /api/schedule/{id} endpoint for class details
+    - Add validation for schedule conflicts and business rules
+    - _Requirements: 4.1, 4.2, 4.3_
+  - [ ] 3.2 Implement role-based schedule filtering
+    - Create GET /api/schedule endpoint with role-based filtering
+    - Implement student schedule view (only enrolled classes)
+    - Implement mentor schedule view (only assigned classes)
+    - Implement supervisor schedule view (all classes)
+    - _Requirements: 6.1, 6.2, 7.1, 7.2, 5.3_
+  - [ ] 3.3 Implement schedule synchronization logic
+    - Create event publisher for schedule changes
+    - Implement cache invalidation on schedule updates
+    - Add Redis caching for user-specific schedules with 5-minute TTL
+    - Implement cache-aside pattern for schedule retrieval
+    - _Requirements: 4.4, 6.3, 7.3_
+  - [ ] 3.4 Create class enrollment management
+    - Implement student enrollment endpoints
+    - Create enrollment validation logic
+    - Add bulk enrollment functionality
+    - _Requirements: 6.1, 7.1_
+  - [ ]* 3.5 Write schedule service tests
+    - Test schedule CRUD operations
+    - Test role-based filtering logic
+    - Test cache invalidation on updates
+    - Test enrollment management
+    - _Requirements: 4.1, 4.2, 4.3, 4.4, 6.1, 6.2, 6.3, 7.1, 7.2, 7.3_
+
+- [ ] 4. Implement Attendance Service core functionality
+  - [ ] 4.1 Create attendance session management
+    - Implement POST /api/class/{id}/activate endpoint for starting attendance session
+    - Implement POST /api/class/{id}/deactivate endpoint for ending attendance session
+    - Create attendance session state machine logic
+    - Update class state to active/inactive in database
+    - Create attendance records for all enrolled students with initial "absent" status
+    - _Requirements: 1.1, 1.2, 2.4, 2.5_
+  - [ ] 4.2 Implement camera activation workflow
+    - Create camera activation trigger when class becomes active
+    - Implement Edge Agent notification mechanism via API callback or WebSocket
+    - Add camera deactivation on session end
+    - _Requirements: 1.3, 8.4_
+  - [ ] 4.3 Create manual attendance marking
+    - Implement POST /api/attendance/manual endpoint
+    - Add validation for mentor authorization
+    - Update attendance records with manual marking flag
+    - Store who marked the attendance manually
+    - _Requirements: 2.1, 2.2, 2.3_
+  - [ ] 4.4 Implement attendance history retrieval
+    - Create GET /api/attendance/history endpoint with role-based filtering
+    - Implement filtering by date range, course, and student
+    - Add pagination for large result sets
+    - Calculate and return attendance statistics
+    - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 15.1, 15.2, 15.3, 15.4_
+  - [ ]* 4.5 Write attendance service tests
+    - Test session activation and deactivation
+    - Test manual attendance marking
+    - Test attendance history retrieval and filtering
+    - Test statistics calculation
+    - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4, 2.5, 14.1, 14.2, 14.3, 14.4, 14.5, 15.1, 15.2, 15.3, 15.4_
+
+- [ ] 5. Implement Message Broker integration
+  - [ ] 5.1 Set up RabbitMQ or Kafka infrastructure
+    - Create Docker Compose configuration for message broker
+    - Configure exchange, queue, and routing keys
+    - Set up durable queues with message persistence
+    - Configure dead letter queue for failed messages
+    - Set message TTL to 5 minutes
+    - _Requirements: 12.2, 12.4_
+  - [ ] 5.2 Create message publisher for face recognition requests
+    - Implement POST /api/face/upload endpoint in API Gateway
+    - Create message publishing logic to face_recognition_queue
+    - Add message format validation
+    - Implement error handling for broker unavailability
+    - _Requirements: 12.1, 8.3_
+  - [ ] 5.3 Implement message consumer in AI Service
+    - Create consumer that listens to face_recognition_queue
+    - Implement message acknowledgment logic
+    - Add error handling and retry mechanism
+    - Process messages in order received
+    - _Requirements: 12.3, 12.5, 9.1_
+  - [ ]* 5.4 Write message broker integration tests
+    - Test message publishing and consumption
+    - Test message persistence and durability
+    - Test dead letter queue functionality
+    - Test broker unavailability handling
+    - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
+
+- [ ] 6. Implement AI Recognition Service
+  - [ ] 6.1 Create face encoding management
+    - Implement face encoding generation from student images
+    - Create database storage for face encodings
+    - Implement face encoding loading on service startup
+    - Add endpoints for adding/updating student face encodings
+    - Cache loaded encodings in memory for fast access
+    - _Requirements: 9.2, 16.4_
+  - [ ] 6.2 Implement face recognition pipeline
+    - Create frame decoding from base64
+    - Implement face detection in frames using face_recognition library
+    - Generate face encodings for detected faces
+    - Compare encodings with known student encodings
+    - Calculate confidence scores using face distance
+    - Filter results by confidence threshold (0.6)
+    - _Requirements: 9.1, 9.3, 9.4_
+  - [ ] 6.3 Create recognition result handler
+    - Implement result sending to Attendance Service
+    - Create result format with student IDs and confidence scores
+    - Add timestamp and session ID to results
+    - Handle recognition failures gracefully
+    - _Requirements: 9.3, 9.5_
+  - [ ] 6.4 Implement batch processing for efficiency
+    - Process multiple frames in batches
+    - Optimize encoding comparison for performance
+    - Add concurrent processing for multiple faces in single frame
+    - _Requirements: 9.1, 9.2_
+  - [ ]* 6.5 Write AI service tests
+    - Test face encoding generation
+    - Test face recognition accuracy
+    - Test confidence score calculation
+    - Test batch processing logic
+    - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
+
+- [ ] 7. Implement Attendance Service AI integration
+  - [ ] 7.1 Create AI result processing endpoint
+    - Implement endpoint to receive recognition results from AI Service
+    - Validate session ID and student IDs in results
+    - Update attendance records based on recognition results
+    - Set status to "present" for recognized students
+    - Store recognition confidence in attendance record
+    - Check if student is late based on attendance window
+    - _Requirements: 9.3, 1.2, 3.2, 3.4_
+  - [ ] 7.2 Implement attendance status logic
+    - Create logic to determine present/absent/late status
+    - Implement attendance window checking (default 15 minutes)
+    - Handle duplicate recognitions (keep first recognition)
+    - Finalize absent status for unrecognized students at session end
+    - _Requirements: 3.2, 3.3, 3.4_
+  - [ ]* 7.3 Write AI integration tests
+    - Test result processing with various scenarios
+    - Test attendance status determination
+    - Test late arrival detection
+    - Test duplicate recognition handling
+    - _Requirements: 9.3, 1.2, 3.2, 3.3, 3.4_
+
+- [ ] 8. Implement Notification Service
+  - [ ] 8.1 Create notification storage and retrieval
+    - Implement notification creation in database
+    - Create GET /api/notifications endpoint for user notifications
+    - Implement notification read status update
+    - Add pagination for notification list
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+  - [ ] 8.2 Implement WebSocket server for real-time notifications
+    - Create WebSocket endpoint at /ws/notifications
+    - Implement connection authentication using JWT
+    - Maintain active WebSocket connections per user
+    - Create notification broadcasting logic
+    - Handle connection lifecycle (connect, disconnect, reconnect)
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+  - [ ] 8.3 Create notification triggers for all events
+    - Implement class_started notification when class activates
+    - Implement attendance_confirmed notification on successful recognition
+    - Implement attendance_absent notification at session end
+    - Implement attendance_late notification for late arrivals
+    - Implement class_cancelled and class_rescheduled notifications
+    - Integrate notification triggers with Schedule and Attendance services
+    - _Requirements: 1.5, 3.2, 3.3, 3.4, 3.5, 4.4, 4.5_
+  - [ ] 8.4 Implement notification queuing for offline users
+    - Store notifications in database for offline users
+    - Deliver queued notifications when user reconnects
+    - Mark notifications as sent after delivery
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+  - [ ]* 8.5 Write notification service tests
+    - Test notification creation and storage
+    - Test WebSocket connection and authentication
+    - Test notification broadcasting
+    - Test offline notification queuing
+    - _Requirements: 1.5, 3.1, 3.2, 3.3, 3.4, 3.5, 4.4, 4.5_
+
+- [ ] 9. Implement API Gateway
+  - [ ] 9.1 Create gateway routing configuration
+    - Set up FastAPI application as API Gateway
+    - Configure route forwarding to microservices
+    - Implement service discovery or static service URLs
+    - Add health check endpoints for all services
+    - _Requirements: 10.4_
+  - [ ] 9.2 Implement authentication middleware
+    - Create JWT validation middleware for UI requests
+    - Create API key validation middleware for Edge Agent requests
+    - Add role extraction from JWT tokens
+    - Implement authentication bypass for public endpoints
+    - _Requirements: 10.1, 10.2, 10.3_
+  - [ ] 9.3 Implement rate limiting
+    - Set up Redis-based rate limiting using token bucket algorithm
+    - Configure rate limits: UI (100/min), Edge Agents (500/min), Auth (10/min)
+    - Return 429 status code when rate limit exceeded
+    - Add rate limit headers to responses
+    - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5_
+  - [ ] 9.4 Add request/response logging and monitoring
+    - Implement request logging with timestamps and user info
+    - Add response time tracking
+    - Create error logging for failed requests
+    - _Requirements: 10.1, 10.4_
+  - [ ]* 9.5 Write API Gateway tests
+    - Test route forwarding to services
+    - Test JWT and API key authentication
+    - Test rate limiting functionality
+    - Test error handling and logging
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 11.1, 11.2, 11.3, 11.4, 11.5_
+
+- [ ] 10. Implement Edge Agent application
+  - [ ] 10.1 Create camera control module
+    - Implement camera initialization using OpenCV
+    - Create frame capture function with configurable FPS
+    - Add camera error handling and reconnection logic
+    - Implement camera activation/deactivation based on API signals
+    - _Requirements: 8.1, 8.4, 8.5_
+  - [ ] 10.2 Implement frame preprocessing pipeline
+    - Create face detection using Haar Cascade or MTCNN
+    - Extract face regions with padding
+    - Resize faces to standard dimensions (224x224)
+    - Normalize pixel values
+    - Encode frames as JPEG with compression
+    - _Requirements: 8.2_
+  - [ ] 10.3 Create API communication module
+    - Implement frame upload to POST /api/face/upload endpoint
+    - Add API key authentication in request headers
+    - Implement retry logic with exponential backoff (1s, 2s, 4s)
+    - Add timeout handling (30 seconds per request)
+    - Create configuration loading from JSON file
+    - _Requirements: 8.3, 8.5_
+  - [ ] 10.4 Implement Edge Agent main loop
+    - Create main application loop that listens for activation signals
+    - Implement frame capture at configured intervals when active
+    - Add graceful shutdown handling
+    - Create logging for all operations
+    - _Requirements: 8.1, 8.2, 8.3, 8.4_
+  - [ ]* 10.5 Write Edge Agent tests
+    - Test camera initialization and frame capture
+    - Test face detection and preprocessing
+    - Test API communication with mocked endpoints
+    - Test retry and error handling logic
+    - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
+
+- [ ] 11. Implement Frontend - Authentication and Layout
+  - [ ] 11.1 Set up React project structure
+    - Create component directory structure (pages, components, services, hooks, utils)
+    - Set up React Router for navigation
+    - Configure Axios for API calls with base URL and interceptors
+    - Set up TailwindCSS for styling
+    - Create environment configuration for API Gateway URL
+    - _Requirements: 13.1_
+  - [ ] 11.2 Create authentication pages and logic
+    - Implement login page with email/password form
+    - Create authentication service for API calls
+    - Implement JWT token storage in localStorage
+    - Create authentication context for global state
+    - Add Axios interceptor for adding JWT to requests
+    - Implement token refresh logic
+    - Create protected route component
+    - _Requirements: 13.1, 13.2, 13.3, 13.4_
+  - [ ] 11.3 Create dashboard layout template
+    - Implement navigation sidebar with role-based menu items
+    - Create header with user profile and logout
+    - Add responsive layout for mobile and desktop
+    - Create loading and error state components
+    - _Requirements: 13.1_
+  - [ ]* 11.4 Write authentication tests
+    - Test login form validation
+    - Test authentication flow
+    - Test protected route access
+    - Test token refresh logic
+    - _Requirements: 13.1, 13.2, 13.3, 13.4_
+
+- [ ] 12. Implement Frontend - Schedule Management
+  - [ ] 12.1 Create schedule display components
+    - Implement schedule list component with class cards
+    - Create class detail modal showing room, time, content, course
+    - Add date/time formatting utilities
+    - Implement class state indicator (active/inactive)
+    - _Requirements: 6.2, 6.4, 7.2, 7.4_
+  - [ ] 12.2 Implement student schedule page
+    - Create schedule tab for student dashboard
+    - Fetch and display student's enrolled classes
+    - Add filtering by date range
+    - Implement auto-refresh every 5 seconds for schedule updates
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
+  - [ ] 12.3 Implement mentor schedule page
+    - Create schedule tab for mentor dashboard
+    - Fetch and display mentor's assigned classes
+    - Add class activation button for upcoming classes
+    - Show active class indicator
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
+  - [ ] 12.4 Implement supervisor schedule management page
+    - Create main schedule tab for supervisor dashboard
+    - Display all classes in the system
+    - Implement add class form with course, mentor, room, date, time, content fields
+    - Create edit class functionality
+    - Add delete class with confirmation dialog
+    - Show real-time updates when schedule changes
+    - _Requirements: 4.1, 4.2, 4.3, 5.3_
+  - [ ]* 12.5 Write schedule component tests
+    - Test schedule list rendering
+    - Test class detail display
+    - Test CRUD operations for supervisor
+    - Test auto-refresh functionality
+    - _Requirements: 4.1, 4.2, 4.3, 6.1, 6.2, 6.3, 6.4, 6.5, 7.1, 7.2, 7.3, 7.4, 7.5_
+
+- [ ] 13. Implement Frontend - Active Class Management
+  - [ ] 13.1 Create mentor active class page
+    - Implement active class tab for mentor dashboard
+    - Display all enrolled students with their info
+    - Show real-time attendance status for each student (present, absent, late)
+    - Create manual attendance marking controls
+    - Add end session button
+    - Implement auto-refresh for attendance updates
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+  - [ ] 13.2 Create student active class view
+    - Implement active class tab for student dashboard
+    - Display current active class information
+    - Show student's own attendance status
+    - Display class content and details
+    - _Requirements: 6.2, 6.4_
+  - [ ] 13.3 Implement supervisor spectate page
+    - Create spectate page for supervisor dashboard
+    - Display list of currently active classes
+    - Show detailed view of selected active class
+    - Display all students and their attendance states
+    - Show class content and information
+    - Implement real-time updates
+    - _Requirements: 5.1, 5.2, 5.4_
+  - [ ]* 13.4 Write active class component tests
+    - Test student list rendering
+    - Test manual attendance marking
+    - Test real-time status updates
+    - Test supervisor spectate view
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 5.1, 5.2, 5.4_
+
+- [ ] 14. Implement Frontend - Attendance History
+  - [ ] 14.1 Create student attendance history page
+    - Implement attendance history tab for student dashboard
+    - Display past classes with attendance status
+    - Show date, time, and course for each record
+    - Calculate and display attendance statistics (percentage, total present/absent/late)
+    - Add date range filter
+    - Add course filter
+    - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5_
+  - [ ] 14.2 Create mentor attendance history page
+    - Implement attendance history tab for mentor dashboard
+    - Display attendance records for all mentor's classes
+    - Show student-wise attendance for each class
+    - Add filtering by class, date, and student
+    - Calculate and display statistics per student and per class
+    - Add export functionality for attendance data
+    - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5_
+  - [ ]* 14.3 Write attendance history tests
+    - Test attendance record display
+    - Test filtering functionality
+    - Test statistics calculation
+    - Test export functionality
+    - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 15.1, 15.2, 15.3, 15.4, 15.5_
+
+- [ ] 15. Implement Frontend - Notifications
+  - [ ] 15.1 Create WebSocket connection service
+    - Implement WebSocket connection to /ws/notifications
+    - Add JWT authentication in WebSocket connection
+    - Create connection lifecycle management (connect, disconnect, reconnect)
+    - Implement automatic reconnection on connection loss
+    - Create notification event listeners
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+  - [ ] 15.2 Create notification display components
+    - Implement notification bell icon with unread count badge
+    - Create notification dropdown panel
+    - Display notification list with title, message, and timestamp
+    - Add mark as read functionality
+    - Implement notification type icons
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+  - [ ] 15.3 Create notifications tab page
+    - Implement notifications tab for all user dashboards
+    - Display full notification history
+    - Add filtering by notification type
+    - Implement pagination for large notification lists
+    - Show read/unread status
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+  - [ ] 15.4 Implement real-time notification handling
+    - Create toast notifications for important events
+    - Add sound/visual alerts for new notifications
+    - Update UI components when relevant notifications arrive
+    - Trigger schedule refresh on schedule change notifications
+    - _Requirements: 1.5, 3.2, 3.3, 3.4, 3.5, 4.4, 4.5_
+  - [ ]* 15.5 Write notification component tests
+    - Test WebSocket connection and reconnection
+    - Test notification display and updates
+    - Test mark as read functionality
+    - Test real-time notification handling
+    - _Requirements: 1.5, 3.1, 3.2, 3.3, 3.4, 3.5, 4.4, 4.5_
+
+- [ ] 16. Integration and deployment setup
+  - [ ] 16.1 Create Docker containers for all services
+    - Write Dockerfile for each microservice
+    - Create Docker Compose file for local development
+    - Configure service networking and dependencies
+    - Set up volume mounts for development
+    - _Requirements: All_
+  - [ ] 16.2 Set up environment configuration
+    - Create .env.example files for all services
+    - Document all required environment variables
+    - Implement configuration validation on service startup
+    - _Requirements: All_
+  - [ ] 16.3 Create database seed scripts
+    - Implement seed script for initial users (student, mentor, supervisor)
+    - Create sample courses and classes
+    - Add sample enrollments
+    - Generate sample face encodings for testing
+    - _Requirements: 16.1, 16.2, 16.3, 16.4_
+  - [ ] 16.4 Implement service health checks
+    - Add health check endpoints to all services
+    - Create database connection health check
+    - Add Redis connection health check
+    - Implement message broker connection health check
+    - _Requirements: All_
+  - [ ]* 16.5 Create integration test suite
+    - Write end-to-end tests for complete workflows
+    - Test class activation to attendance marking flow
+    - Test schedule synchronization across roles
+    - Test notification delivery
+    - _Requirements: All_
+
+- [ ] 17. Final integration and system testing
+  - [ ] 17.1 Wire all services together
+    - Verify all service-to-service communication
+    - Test API Gateway routing to all services
+    - Validate authentication flow across all endpoints
+    - Ensure WebSocket connections work end-to-end
+    - _Requirements: All_
+  - [ ] 17.2 Perform end-to-end workflow testing
+    - Test complete class activation and attendance workflow
+    - Verify schedule management and synchronization
+    - Test face recognition pipeline from camera to attendance record
+    - Validate notification delivery for all event types
+    - Test manual attendance marking and overrides
+    - _Requirements: All_
+  - [ ] 17.3 Verify error handling and edge cases
+    - Test system behavior when services are unavailable
+    - Verify retry mechanisms and circuit breakers
+    - Test rate limiting enforcement
+    - Validate error messages and user feedback
+    - _Requirements: All_
+  - [ ]* 17.4 Performance and load testing
+    - Test system with multiple concurrent users
+    - Verify face recognition performance under load
+    - Test WebSocket scalability
+    - Measure API response times
+    - _Requirements: All_
