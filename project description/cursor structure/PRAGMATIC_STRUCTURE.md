@@ -2,6 +2,9 @@
 
 ## Overview
 
+
+
+
 This is a **simplified, achievable version** of the project structure that maintains professional standards while being realistic for a student project. It removes over-engineering while keeping essential design patterns.
 
 ---
@@ -212,39 +215,66 @@ services/notification_service/
 
 ### Single Entry Point (`main.py`)
 
-```python
-from fastapi import FastAPI
-from api_gateway.middleware.auth_middleware import AuthMiddleware
-from api_gateway.middleware.rate_limit_middleware import RateLimitMiddleware
-from services.auth_service.api.routes import router as auth_router
-from services.schedule_service.api.routes import router as schedule_router
-from services.attendance_service.api.routes import router as attendance_router
-from services.ai_service.consumer.message_consumer import start_consumer
-from services.notification_service.api.routes import router as notification_router
-from services.notification_service.api.websocket import websocket_router
+[//]: # (```python)
 
-app = FastAPI()
+[//]: # (from fastapi import FastAPI)
 
-# Add middleware
-app.add_middleware(AuthMiddleware)
-app.add_middleware(RateLimitMiddleware)
+[//]: # (from api_gateway.middleware.auth_middleware import AuthMiddleware)
 
-# Include all service routers
-app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
-app.include_router(schedule_router, prefix="/api/schedule", tags=["schedule"])
-app.include_router(attendance_router, prefix="/api/attendance", tags=["attendance"])
-app.include_router(notification_router, prefix="/api/notifications", tags=["notifications"])
-app.include_router(websocket_router, prefix="/ws")
+[//]: # (from api_gateway.middleware.rate_limit_middleware import RateLimitMiddleware)
 
-# Start background consumer for AI service
-@app.on_event("startup")
-async def startup():
-    start_consumer()  # RabbitMQ consumer runs in background
+[//]: # (from services.auth_service.api.routes import router as auth_router)
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-```
+[//]: # (from services.schedule_service.api.routes import router as schedule_router)
+
+[//]: # (from services.attendance_service.api.routes import router as attendance_router)
+
+[//]: # (from services.ai_service.consumer.message_consumer import start_consumer)
+
+[//]: # (from services.notification_service.api.routes import router as notification_router)
+
+[//]: # (from services.notification_service.api.websocket import websocket_router)
+
+[//]: # ()
+[//]: # (app = FastAPI&#40;&#41;)
+
+[//]: # ()
+[//]: # (# Add middleware)
+
+[//]: # (app.add_middleware&#40;AuthMiddleware&#41;)
+
+[//]: # (app.add_middleware&#40;RateLimitMiddleware&#41;)
+
+[//]: # ()
+[//]: # (# Include all service routers)
+
+[//]: # (app.include_router&#40;auth_router, prefix="/api/auth", tags=["auth"]&#41;)
+
+[//]: # (app.include_router&#40;schedule_router, prefix="/api/schedule", tags=["schedule"]&#41;)
+
+[//]: # (app.include_router&#40;attendance_router, prefix="/api/attendance", tags=["attendance"]&#41;)
+
+[//]: # (app.include_router&#40;notification_router, prefix="/api/notifications", tags=["notifications"]&#41;)
+
+[//]: # (app.include_router&#40;websocket_router, prefix="/ws"&#41;)
+
+[//]: # ()
+[//]: # (# Start background consumer for AI service)
+
+[//]: # (@app.on_event&#40;"startup"&#41;)
+
+[//]: # (async def startup&#40;&#41;:)
+
+[//]: # (    start_consumer&#40;&#41;  # RabbitMQ consumer runs in background)
+
+[//]: # ()
+[//]: # (if __name__ == "__main__":)
+
+[//]: # (    import uvicorn)
+
+[//]: # (    uvicorn.run&#40;app, host="0.0.0.0", port=8000&#41;)
+
+[//]: # (```)
 
 **Benefits:**
 
