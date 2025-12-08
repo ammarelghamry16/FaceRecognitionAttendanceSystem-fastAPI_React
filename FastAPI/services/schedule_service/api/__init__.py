@@ -1,1 +1,6 @@
-"""just to be heard in github"""
+"""
+Schedule service API routes.
+"""
+from .routes import router
+
+__all__ = ['router']
