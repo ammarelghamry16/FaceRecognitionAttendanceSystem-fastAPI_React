@@ -2,13 +2,12 @@
 User model - shared across all services.
 """
 from sqlalchemy import Column, String, Boolean
-from sqlalchemy.dialects.postgresql import UUID, ENUM
+from sqlalchemy.dialects.postgresql import UUID
 import uuid
-from ..database.base import Base, BaseModel
-from .enums import UserRole
+from ..database.base import Base, TimestampMixin
 
 
-class User(Base):
+class User(Base, TimestampMixin):
     """
     User model representing students, mentors, and admins.
     """
@@ -18,7 +17,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=False)
-    role = Column(ENUM(UserRole, name='user_role'), nullable=False, default=UserRole.STUDENT)
+    role = Column(String(20), nullable=False, default='student')  # student, mentor, admin
     student_id = Column(String(50), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
 

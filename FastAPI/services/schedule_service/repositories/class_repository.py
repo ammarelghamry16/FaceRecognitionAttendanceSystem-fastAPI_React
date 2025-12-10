@@ -6,7 +6,6 @@ from uuid import UUID
 from sqlalchemy.orm import Session, joinedload
 from ..models.class_model import Class
 from ..models.enrollment import Enrollment
-from shared.models.enums import WeekDay
 from .base_repository import BaseRepository
 
 
@@ -21,14 +20,6 @@ class ClassRepository(BaseRepository[Class]):
     def find_by_mentor(self, mentor_id: UUID, skip: int = 0, limit: int = 100) -> List[Class]:
         """
         Get all classes assigned to a specific mentor.
-        
-        Args:
-            mentor_id: UUID of the mentor
-            skip: Number of records to skip
-            limit: Maximum number of records to return
-            
-        Returns:
-            List of classes for the mentor
         """
         return (
             self.db.query(self.model)
@@ -43,14 +34,6 @@ class ClassRepository(BaseRepository[Class]):
     def find_by_student(self, student_id: UUID, skip: int = 0, limit: int = 100) -> List[Class]:
         """
         Get all classes a student is enrolled in.
-        
-        Args:
-            student_id: UUID of the student
-            skip: Number of records to skip
-            limit: Maximum number of records to return
-            
-        Returns:
-            List of classes the student is enrolled in
         """
         return (
             self.db.query(self.model)
@@ -66,12 +49,6 @@ class ClassRepository(BaseRepository[Class]):
     def find_by_course(self, course_id: UUID) -> List[Class]:
         """
         Get all classes for a specific course.
-        
-        Args:
-            course_id: UUID of the course
-            
-        Returns:
-            List of classes for that course
         """
         return (
             self.db.query(self.model)
@@ -80,15 +57,9 @@ class ClassRepository(BaseRepository[Class]):
             .all()
         )
     
-    def find_by_day(self, day: WeekDay) -> List[Class]:
+    def find_by_day(self, day: str) -> List[Class]:
         """
         Get all classes scheduled for a specific day.
-        
-        Args:
-            day: Day of the week
-            
-        Returns:
-            List of classes on that day
         """
         return (
             self.db.query(self.model)
@@ -101,12 +72,6 @@ class ClassRepository(BaseRepository[Class]):
     def find_by_room(self, room_number: str) -> List[Class]:
         """
         Get all classes in a specific room.
-        
-        Args:
-            room_number: Room number
-            
-        Returns:
-            List of classes in that room
         """
         return (
             self.db.query(self.model)
@@ -117,19 +82,12 @@ class ClassRepository(BaseRepository[Class]):
     
     def find_with_details(self, class_id: UUID) -> Optional[Class]:
         """
-        Get a class with all related data (course, mentor, enrollments).
-        
-        Args:
-            class_id: UUID of the class
-            
-        Returns:
-            Class with relationships loaded
+        Get a class with all related data (course, enrollments).
         """
         return (
             self.db.query(self.model)
             .options(
                 joinedload(self.model.course),
-                joinedload(self.model.mentor),
                 joinedload(self.model.enrollments)
             )
             .filter(self.model.id == class_id)

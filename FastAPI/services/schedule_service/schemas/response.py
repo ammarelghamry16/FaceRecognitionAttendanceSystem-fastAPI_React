@@ -1,11 +1,10 @@
 """
 Response schemas for schedule service API.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Optional, List
 from uuid import UUID
 from datetime import time, datetime
-from shared.models.enums import WeekDay
 
 
 class CourseResponse(BaseModel):
@@ -13,7 +12,7 @@ class CourseResponse(BaseModel):
     id: UUID
     code: str
     name: str
-    description: Optional[str]
+    description: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -25,10 +24,10 @@ class ClassResponse(BaseModel):
     """Schema for class response"""
     id: UUID
     course_id: UUID
-    mentor_id: Optional[UUID]
+    mentor_id: Optional[UUID] = None
     name: str
     room_number: str
-    day_of_week: WeekDay
+    day_of_week: str
     schedule_time: time
     created_at: datetime
     updated_at: datetime
@@ -41,15 +40,13 @@ class ClassDetailResponse(BaseModel):
     """Schema for detailed class response with relationships"""
     id: UUID
     course_id: UUID
-    course_name: str
-    course_code: str
-    mentor_id: Optional[UUID]
-    mentor_name: Optional[str]
+    course_name: Optional[str] = None
+    course_code: Optional[str] = None
+    mentor_id: Optional[UUID] = None
     name: str
     room_number: str
-    day_of_week: WeekDay
+    day_of_week: str
     schedule_time: time
-    enrolled_students_count: int
     created_at: datetime
     updated_at: datetime
 
@@ -69,7 +66,7 @@ class EnrollmentResponse(BaseModel):
 
 class ScheduleResponse(BaseModel):
     """Schema for schedule response (list of classes)"""
-    classes: List[ClassDetailResponse]
+    classes: List[ClassResponse]
     total: int
 
     class Config:

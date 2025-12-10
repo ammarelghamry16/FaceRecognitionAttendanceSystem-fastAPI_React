@@ -1,26 +1,26 @@
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, DateTime
-from datetime import datetime
+from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, DateTime
+from sqlalchemy.dialects.postgresql import UUID
+from datetime import datetime, timezone
+import uuid
 
 # Create base class for all models
 Base = declarative_base()
 
 
-class BaseModel(Base):
+class TimestampMixin:
     """
-    Base model class with common fields and functionality.
-    All other models should inherit from this class.
+    Mixin class that adds created_at and updated_at timestamps.
+    Use this with your models that need timestamps.
     """
-    __abstract__ = True
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    def to_dict(self):
-        """Convert model instance to dictionary"""
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
-
-    def __repr__(self):
-        """String representation of model"""
-        return f"<{self.__class__.__name__}(id={self.id})>"
+    created_at = Column(
+        DateTime(timezone=True), 
+        default=lambda: datetime.now(timezone.utc), 
+        nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True), 
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc), 
+        nullable=False
+    )

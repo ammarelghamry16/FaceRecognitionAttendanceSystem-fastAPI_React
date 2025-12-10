@@ -1,11 +1,10 @@
 """
 Request schemas for schedule service API.
 """
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 from typing import Optional
 from uuid import UUID
 from datetime import time
-from shared.models.enums import WeekDay
 
 
 class CourseCreate(BaseModel):
@@ -45,7 +44,7 @@ class ClassCreate(BaseModel):
     mentor_id: Optional[UUID] = Field(None, description="Mentor UUID")
     name: str = Field(..., min_length=3, max_length=100, description="Class name")
     room_number: str = Field(..., min_length=1, max_length=50, description="Room number")
-    day_of_week: WeekDay = Field(..., description="Day of the week")
+    day_of_week: str = Field(..., description="Day of the week (monday, tuesday, etc.)")
     schedule_time: time = Field(..., description="Class time")
 
     class Config:
@@ -67,7 +66,7 @@ class ClassUpdate(BaseModel):
     mentor_id: Optional[UUID] = None
     name: Optional[str] = Field(None, min_length=3, max_length=100)
     room_number: Optional[str] = Field(None, min_length=1, max_length=50)
-    day_of_week: Optional[WeekDay] = None
+    day_of_week: Optional[str] = None
     schedule_time: Optional[time] = None
 
     class Config:

@@ -1,2 +1,2 @@
 from .connection import DatabaseConnection
-from .base import BaseModel
+from .base import Base, TimestampMixin
