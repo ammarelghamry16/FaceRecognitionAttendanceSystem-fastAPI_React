@@ -5,12 +5,15 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
+import logging
 
 from ..repositories.session_repository import SessionRepository
 from ..repositories.attendance_repository import AttendanceRepository
 from ..models.attendance_session import AttendanceSession
 from ..models.attendance_record import AttendanceRecord
 from ..state_machine import SessionContext
+
+logger = logging.getLogger(__name__)
 
 
 class AttendanceService:
@@ -50,7 +53,40 @@ class AttendanceService:
             start_time=datetime.now(timezone.utc)
         )
         
-        return self.session_repo.create(session)
+        created_session = self.session_repo.create(session)
+        
+        # Notify enrolled students that session has started
+        self._notify_session_started(created_session)
+        
+        return created_session
+    
+    def _notify_session_started(self, session: AttendanceSession) -> None:
+        """Notify enrolled students that attendance session has started."""
+        try:
+            from services.notification_service.services.notification_service import NotificationService
+            from services.schedule_service.repositories.enrollment_repository import EnrollmentRepository
+            
+            notification_service = NotificationService(self.db)
+            enrollment_repo = EnrollmentRepository(self.db)
+            
+            # Get enrolled students for this class
+            enrollments = enrollment_repo.find_by_class(session.class_id)
+            
+            for enrollment in enrollments:
+                notification_service.create_notification(
+                    user_id=enrollment.student_id,
+                    notification_type="session_started",
+                    title="Attendance Session Started",
+                    message="An attendance session has started for your class. Please mark your attendance.",
+                    data={
+                        "session_id": str(session.id),
+                        "class_id": str(session.class_id)
+                    }
+                )
+            
+            logger.info(f"Session start notifications sent to {len(enrollments)} students")
+        except Exception as e:
+            logger.error(f"Failed to send session start notifications: {e}")
     
     def end_session(
         self,
@@ -155,7 +191,57 @@ class AttendanceService:
         
         self.db.flush()
         self.db.refresh(record)
+        
+        # Trigger notification for attendance marked
+        self._notify_attendance_marked(record, session)
+        
         return record
+    
+    def _notify_attendance_marked(
+        self,
+        record: AttendanceRecord,
+        session: AttendanceSession
+    ) -> None:
+        """Send notification when attendance is marked."""
+        try:
+            from services.notification_service.services.notification_service import NotificationService
+            notification_service = NotificationService(self.db)
+            
+            # Determine notification type based on status
+            if record.status == "present":
+                notification_type = "attendance_marked"
+                title = "Attendance Recorded"
+                message = "Your attendance has been marked as present."
+            elif record.status == "late":
+                notification_type = "attendance_late"
+                title = "Late Attendance"
+                message = "Your attendance has been marked as late."
+            elif record.status == "absent":
+                notification_type = "attendance_absent"
+                title = "Marked Absent"
+                message = "You have been marked absent for this session."
+            else:
+                notification_type = "attendance_marked"
+                title = "Attendance Updated"
+                message = f"Your attendance status: {record.status}"
+            
+            notification_service.create_notification(
+                user_id=record.student_id,
+                notification_type=notification_type,
+                title=title,
+                message=message,
+                data={
+                    "session_id": str(session.id),
+                    "class_id": str(session.class_id),
+                    "status": record.status,
+                    "method": record.verification_method,
+                    "marked_at": record.marked_at.isoformat() if record.marked_at else None
+                }
+            )
+            logger.info(f"Notification sent for attendance: {record.student_id}")
+        except Exception as e:
+            # Don't fail attendance marking if notification fails
+            logger.error(f"Failed to send attendance notification: {e}")
     
     def mark_manual(
         self,

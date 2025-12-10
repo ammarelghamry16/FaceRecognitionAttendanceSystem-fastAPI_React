@@ -285,12 +285,24 @@ class RecognitionService:
     
     def get_user_encodings_count(self, user_id: UUID) -> int:
         """Get number of encodings for a user."""
-        return self.encoding_repo.count_by_user(user_id)
+        try:
+            return self.encoding_repo.count_by_user(user_id)
+        except Exception as e:
+            logger.error(f"Error getting encoding count: {e}")
+            return 0
     
     def delete_user_encodings(self, user_id: UUID) -> int:
         """Delete all encodings for a user."""
-        return self.encoding_repo.delete_by_user(user_id)
+        try:
+            return self.encoding_repo.delete_by_user(user_id)
+        except Exception as e:
+            logger.error(f"Error deleting encodings: {e}")
+            return 0
     
     def is_user_enrolled(self, user_id: UUID) -> bool:
         """Check if user has face encodings."""
-        return self.encoding_repo.user_has_encodings(user_id)
+        try:
+            return self.encoding_repo.user_has_encodings(user_id)
+        except Exception as e:
+            logger.error(f"Error checking enrollment: {e}")
+            return False
