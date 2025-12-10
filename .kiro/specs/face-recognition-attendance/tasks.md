@@ -152,6 +152,10 @@ This document outlines the implementation tasks for the Face Recognition Attenda
 
 ### Task 3.3: AI Recognition Service
 - [ ] Create AI service directory structure
+
+
+
+
 - [ ] Implement FaceEncoding SQLAlchemy model
 - [ ] Implement FaceEncodingRepository
 - [ ] Implement IFaceRecognitionAdapter interface
