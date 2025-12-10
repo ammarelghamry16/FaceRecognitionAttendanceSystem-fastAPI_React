@@ -1,41 +1,74 @@
+"""
+Face Recognition Attendance System - Main Application
+Modular Monolith Architecture
+"""
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List
 
+# Import service routers
+from services.schedule_service.api.routes import router as schedule_router
+from services.notification_service.api.routes import router as notification_router
+from services.notification_service.api.websocket import websocket_router as notification_ws_router
 
-class Fruit(BaseModel):
-    name: str
+# Create FastAPI app
+app = FastAPI(
+    title="Face Recognition Attendance System",
+    description="Automated attendance management using AI-powered face recognition",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-class Fruits(BaseModel):
-    fruits: List[Fruit]
-
-app = FastAPI()
-
+# CORS Configuration
 origins = [
-    "http://localhost:3000"  # The Frontend React server
+    "http://localhost:3000",  # React Frontend
+    "http://localhost:5173",  # Vite Frontend
 ]
 
 app.add_middleware(
-    CORSMiddleware,             # From the Import
-    allow_origins=origins,      # The allowed Websites
-    allow_credentials=True,     # For Auth (JWT)
-    allow_methods=["*"],        # if you want to specify Add or delete only, instead of *
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-memory_db = {"fruits": []}
+# Include Service Routers
+app.include_router(
+    schedule_router, 
+    prefix="/api/schedule", 
+    tags=["Schedule Service"]
+)
 
-@app.get("/fruits", response_model=Fruits)
-def get_fruits():
-    return Fruits(fruits=memory_db["fruits"])
+app.include_router(
+    notification_router,
+    prefix="/api/notifications",
+    tags=["Notification Service"]
+)
 
-@app.post("/fruits", response_model=Fruit)
-def add_fruit(fruit: Fruit):
-    memory_db["fruits"].append(fruit)
-    return fruit
+# WebSocket Router (no prefix needed, path is in the router)
+app.include_router(
+    notification_ws_router,
+    prefix="/api/notifications",
+    tags=["Notification WebSocket"]
+)
+
+# Health Check Endpoint
+@app.get("/", tags=["Health"])
+def root():
+    """Root endpoint - API health check"""
+    return {
+        "status": "healthy",
+        "message": "Face Recognition Attendance System API",
+        "version": "1.0.0"
+    }
+
+@app.get("/health", tags=["Health"])
+def health_check():
+    """Health check endpoint"""
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
