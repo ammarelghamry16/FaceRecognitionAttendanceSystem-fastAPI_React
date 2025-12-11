@@ -7,7 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import service routers
+from services.auth_service.api.routes import router as auth_router
 from services.schedule_service.api.routes import router as schedule_router
+from services.attendance_service.api.routes import router as attendance_router
+from services.ai_service.api.routes import router as ai_router
 from services.notification_service.api.routes import router as notification_router
 from services.notification_service.api.websocket import websocket_router as notification_ws_router
 
@@ -36,9 +39,27 @@ app.add_middleware(
 
 # Include Service Routers
 app.include_router(
+    auth_router,
+    prefix="/api/auth",
+    tags=["Auth Service"]
+)
+
+app.include_router(
     schedule_router, 
     prefix="/api/schedule", 
     tags=["Schedule Service"]
+)
+
+app.include_router(
+    attendance_router,
+    prefix="/api/attendance",
+    tags=["Attendance Service"]
+)
+
+app.include_router(
+    ai_router,
+    prefix="/api/ai",
+    tags=["AI Service"]
 )
 
 app.include_router(
