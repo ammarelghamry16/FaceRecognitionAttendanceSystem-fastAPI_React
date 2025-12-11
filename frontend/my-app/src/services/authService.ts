@@ -1,16 +1,16 @@
 /**
- * Auth Service - Mock authentication (real auth not implemented in backend yet)
- * 
- * TODO: Replace with real API calls when Auth Service is implemented
+ * Auth Service - Real authentication using backend API
  */
+import api from './api';
 
 // Types
 export interface User {
   id: string;
   email: string;
-  first_name: string;
-  last_name: string;
+  full_name: string;
   role: 'student' | 'mentor' | 'admin';
+  student_id?: string;
+  is_active: boolean;
 }
 
 export interface LoginCredentials {
@@ -18,64 +18,67 @@ export interface LoginCredentials {
   password: string;
 }
 
+export interface RegisterData {
+  email: string;
+  password: string;
+  full_name: string;
+  role: 'student' | 'mentor' | 'admin';
+  student_id?: string;
+}
+
 export interface AuthResponse {
   access_token: string;
   refresh_token: string;
+  token_type: string;
   user: User;
 }
 
-// Mock users for testing
-const MOCK_USERS: Record<string, User> = {
-  'student@test.com': {
-    id: '550e8400-e29b-41d4-a716-446655440001',
-    email: 'student@test.com',
-    first_name: 'John',
-    last_name: 'Student',
-    role: 'student',
-  },
-  'mentor@test.com': {
-    id: '550e8400-e29b-41d4-a716-446655440002',
-    email: 'mentor@test.com',
-    first_name: 'Jane',
-    last_name: 'Mentor',
-    role: 'mentor',
-  },
-  'admin@test.com': {
-    id: '550e8400-e29b-41d4-a716-446655440003',
-    email: 'admin@test.com',
-    first_name: 'Admin',
-    last_name: 'User',
-    role: 'admin',
-  },
-};
+export interface ChangePasswordData {
+  current_password: string;
+  new_password: string;
+}
 
-// Mock Auth API
+// Auth API
 export const authApi = {
   /**
-   * Mock login - accepts any password for mock users
-   * TODO: Replace with real API call when backend is ready
+   * Login with email and password
    */
   login: async (credentials: LoginCredentials): Promise<AuthResponse> => {
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const response = await api.post<AuthResponse>('/api/auth/login', credentials);
+    
+    // Store tokens
+    localStorage.setItem('access_token', response.data.access_token);
+    localStorage.setItem('refresh_token', response.data.refresh_token);
+    localStorage.setItem('user', JSON.stringify(response.data.user));
+    
+    return response.data;
+  },
 
-    const user = MOCK_USERS[credentials.email];
-    if (!user) {
-      throw new Error('Invalid email or password');
+  /**
+   * Register a new user
+   */
+  register: async (data: RegisterData): Promise<AuthResponse> => {
+    const response = await api.post<AuthResponse>('/api/auth/register', data);
+    return response.data;
+  },
+
+  /**
+   * Refresh access token
+   */
+  refreshToken: async (): Promise<AuthResponse> => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
     }
-
-    // Generate mock tokens
-    const response: AuthResponse = {
-      access_token: `mock-jwt-token-${user.id}`,
-      refresh_token: `mock-refresh-token-${user.id}`,
-      user,
-    };
-
-    // Store in localStorage
-    localStorage.setItem('access_token', response.access_token);
-    localStorage.setItem('user', JSON.stringify(response.user));
-
-    return response;
+    
+    const response = await api.post<AuthResponse>('/api/auth/refresh', {
+      refresh_token: refreshToken
+    });
+    
+    localStorage.setItem('access_token', response.data.access_token);
+    localStorage.setItem('refresh_token', response.data.refresh_token);
+    
+    return response.data;
   },
 
   /**
@@ -83,7 +86,40 @@ export const authApi = {
    */
   logout: async (): Promise<void> => {
     localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
     localStorage.removeItem('user');
+  },
+
+  /**
+   * Get current user profile
+   */
+  getProfile: async (): Promise<User> => {
+    const response = await api.get<User>('/api/auth/me');
+    return response.data;
+  },
+
+  /**
+   * Update user profile
+   */
+  updateProfile: async (data: Partial<User>): Promise<User> => {
+    const response = await api.put<User>('/api/auth/me', data);
+    localStorage.setItem('user', JSON.stringify(response.data));
+    return response.data;
+  },
+
+  /**
+   * Change password
+   */
+  changePassword: async (data: ChangePasswordData): Promise<void> => {
+    await api.post('/api/auth/me/change-password', data);
+  },
+
+  /**
+   * Validate current token
+   */
+  validateToken: async (): Promise<{ valid: boolean; user_id: string }> => {
+    const response = await api.post('/api/auth/validate');
+    return response.data;
   },
 
   /**
@@ -114,9 +150,4 @@ export const authApi = {
   },
 };
 
-// Export mock user IDs for testing
-export const MOCK_USER_IDS = {
-  STUDENT: '550e8400-e29b-41d4-a716-446655440001',
-  MENTOR: '550e8400-e29b-41d4-a716-446655440002',
-  ADMIN: '550e8400-e29b-41d4-a716-446655440003',
-};
+export default authApi;
