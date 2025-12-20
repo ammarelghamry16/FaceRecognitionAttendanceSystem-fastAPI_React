@@ -13,6 +13,7 @@ from ..strategies.api_key_strategy import APIKeyAuthStrategy
 from ..strategies.auth_strategy import AuthResult
 from .password_service import PasswordService
 from .token_service import TokenService
+from .student_id_service import StudentIdService
 from ..models.api_key import APIKey
 from shared.models.user import User
 
@@ -34,6 +35,7 @@ class AuthService:
         self.api_key_repo = APIKeyRepository(db)
         self.password_service = PasswordService()
         self.token_service = TokenService()
+        self.student_id_service = StudentIdService(db)
         self.jwt_strategy = JWTAuthStrategy(db)
         self.api_key_strategy = APIKeyAuthStrategy(db)
     
@@ -55,7 +57,7 @@ class AuthService:
             password: Plain text password
             full_name: User's full name
             role: User role (student, mentor, admin)
-            student_id: Optional student ID
+            student_id: Optional student ID (auto-generated for students if not provided)
             
         Returns:
             Created User object
@@ -75,6 +77,13 @@ class AuthService:
         # Hash password
         password_hash = self.password_service.hash_password(password)
         
+        # Auto-generate student ID for students if not provided
+        enrollment_year = None
+        if role == "student":
+            enrollment_year = datetime.now().year
+            if not student_id:
+                student_id = self.student_id_service.generate_student_id(enrollment_year)
+        
         # Create user
         user = User(
             email=email,
@@ -82,6 +91,7 @@ class AuthService:
             full_name=full_name,
             role=role,
             student_id=student_id,
+            enrollment_year=enrollment_year,
             is_active=True
         )
         

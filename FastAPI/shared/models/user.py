@@ -1,7 +1,7 @@
 """
 User model - shared across all services.
 """
-from sqlalchemy import Column, String, Boolean
+from sqlalchemy import Column, String, Boolean, Integer
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from ..database.base import Base, TimestampMixin
@@ -18,7 +18,8 @@ class User(Base, TimestampMixin):
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=False)
     role = Column(String(20), nullable=False, default='student')  # student, mentor, admin
-    student_id = Column(String(50), nullable=True)
+    student_id = Column(String(10), unique=True, nullable=True)  # Format: YYYY/NNNNN
+    enrollment_year = Column(Integer, nullable=True)  # Year student was enrolled
     is_active = Column(Boolean, default=True, nullable=False)
 
     def __repr__(self):

@@ -8,6 +8,8 @@ export interface User {
   id: string;
   email: string;
   full_name: string;
+  first_name?: string;
+  last_name?: string;
   role: 'student' | 'mentor' | 'admin';
   student_id?: string;
   is_active: boolean;
@@ -45,12 +47,12 @@ export const authApi = {
    */
   login: async (credentials: LoginCredentials): Promise<AuthResponse> => {
     const response = await api.post<AuthResponse>('/api/auth/login', credentials);
-    
+
     // Store tokens
     localStorage.setItem('access_token', response.data.access_token);
     localStorage.setItem('refresh_token', response.data.refresh_token);
     localStorage.setItem('user', JSON.stringify(response.data.user));
-    
+
     return response.data;
   },
 
@@ -70,14 +72,14 @@ export const authApi = {
     if (!refreshToken) {
       throw new Error('No refresh token available');
     }
-    
+
     const response = await api.post<AuthResponse>('/api/auth/refresh', {
       refresh_token: refreshToken
     });
-    
+
     localStorage.setItem('access_token', response.data.access_token);
     localStorage.setItem('refresh_token', response.data.refresh_token);
-    
+
     return response.data;
   },
 
@@ -147,6 +149,16 @@ export const authApi = {
    */
   getToken: (): string | null => {
     return localStorage.getItem('access_token');
+  },
+
+  /**
+   * Search users by name or student ID
+   */
+  searchUsers: async (query: string, role?: string, limit = 20): Promise<User[]> => {
+    const params: Record<string, string | number> = { q: query, limit };
+    if (role) params.role = role;
+    const response = await api.get<User[]>('/api/auth/users/search', { params });
+    return response.data;
   },
 };
 

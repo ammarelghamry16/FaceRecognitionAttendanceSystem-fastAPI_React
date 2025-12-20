@@ -2,31 +2,37 @@
  * Login Page
  */
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/hooks/useToast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
+  const { toast } = useToast();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setIsLoading(true);
 
     try {
       await login({ email, password });
       navigate('/dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      // Show dismissible toast notification - email is preserved in input
+      toast({
+        title: 'Login Failed',
+        description: err instanceof Error ? err.message : 'Invalid credentials. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -34,6 +40,10 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
+
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Face Recognition Attendance</CardTitle>
@@ -41,12 +51,6 @@ export default function Login() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-950 rounded-md">
-                {error}
-              </div>
-            )}
-
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -76,17 +80,11 @@ export default function Login() {
             </Button>
           </form>
 
-          {/* Demo credentials info */}
-          <div className="mt-6 p-4 bg-muted rounded-md">
-            <p className="text-sm font-medium mb-2">Demo Accounts:</p>
-            <ul className="text-xs text-muted-foreground space-y-1">
-              <li>• student@test.com (Student)</li>
-              <li>• mentor@test.com (Mentor)</li>
-              <li>• admin@test.com (Admin)</li>
-            </ul>
-            <p className="text-xs text-muted-foreground mt-2">
-              Use any password to login
-            </p>
+          <div className="mt-4 text-center text-sm text-muted-foreground">
+            Don't have an account?{' '}
+            <Link to="/register" className="text-primary hover:underline">
+              Register
+            </Link>
           </div>
         </CardContent>
       </Card>

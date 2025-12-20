@@ -1,7 +1,7 @@
 """
 Attendance Session model for tracking class attendance periods.
 """
-from sqlalchemy import Column, String, ForeignKey, DateTime, Integer
+from sqlalchemy import Column, String, ForeignKey, DateTime, Integer, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -36,6 +36,12 @@ class AttendanceSession(Base, TimestampMixin):
     
     # Configuration
     late_threshold_minutes = Column(Integer, default=15)  # Minutes after start to mark as late
+    auto_recognition_window_minutes = Column(Integer, default=20)  # Minutes for auto face recognition
+    max_duration_minutes = Column(Integer, default=120)  # Max session duration (2 hours)
+    
+    # Auto-end tracking
+    auto_ended = Column(Boolean, default=False)
+    ended_reason = Column(String(100), nullable=True)  # "manual", "duration_expired", "cancelled"
     
     # Who started/ended the session
     started_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -60,3 +66,17 @@ class AttendanceSession(Base, TimestampMixin):
         end = self.end_time or datetime.now(timezone.utc)
         delta = end - self.start_time
         return int(delta.total_seconds() / 60)
+
+    @property
+    def is_auto_recognition_active(self) -> bool:
+        """Check if automatic face recognition is still active."""
+        if self.state != "active":
+            return False
+        elapsed = self.get_duration_minutes()
+        return elapsed <= self.auto_recognition_window_minutes
+
+    def is_expired(self) -> bool:
+        """Check if session has exceeded max duration."""
+        if self.state != "active":
+            return False
+        return self.get_duration_minutes() >= self.max_duration_minutes

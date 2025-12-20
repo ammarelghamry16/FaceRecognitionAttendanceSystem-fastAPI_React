@@ -1,9 +1,10 @@
 """
 Face Recognition Service - Main business logic for face recognition.
+Enhanced with quality analysis, pose classification, centroid matching, and duplicate detection.
 """
 from typing import Optional, List, Dict, Any, Tuple
 from uuid import UUID
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 from PIL import Image
 import io
@@ -13,6 +14,10 @@ from sqlalchemy.orm import Session
 from ..repositories.face_encoding_repository import FaceEncodingRepository
 from ..models.face_encoding import FaceEncoding
 from ..adapters.base_adapter import IFaceRecognitionAdapter, RecognitionResult
+from .quality_analyzer import QualityAnalyzer, QualityMetrics
+from .pose_classifier import PoseClassifier, PoseCategory, PoseInfo
+from .centroid_manager import CentroidManager
+from .duplicate_checker import DuplicateChecker
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +29,40 @@ class EnrollmentResult:
     user_id: Optional[UUID] = None
     encodings_count: int = 0
     message: str = ""
+    quality_score: float = 0.0
+    pose_category: Optional[str] = None
+
+
+@dataclass
+class EnrollmentMetrics:
+    """Enrollment quality metrics for a user."""
+    user_id: UUID
+    encoding_count: int = 0
+    avg_quality_score: float = 0.0
+    pose_coverage: List[str] = field(default_factory=list)
+    needs_re_enrollment: bool = False
+    re_enrollment_reason: Optional[str] = None
+    last_updated: Optional[str] = None
 
 
 class RecognitionService:
     """
     Face recognition service handling enrollment and matching.
+    Enhanced with quality analysis, pose classification, centroid matching, and duplicate detection.
     """
     
-    # Recognition thresholds
-    MATCH_THRESHOLD = 0.4  # Cosine distance threshold for match
+    # Recognition thresholds (adaptive based on enrollment quality)
+    THRESHOLD_HIGH_QUALITY = 0.35  # 5+ high-quality enrollments
+    THRESHOLD_STANDARD = 0.40      # 3-4 enrollments
+    THRESHOLD_LOW_ENROLLMENT = 0.45  # < 3 enrollments
+    
+    MATCH_THRESHOLD = 0.4  # Default threshold (legacy)
     AMBIGUITY_MARGIN = 0.1  # Minimum gap between best and second-best
     MIN_DETECTION_CONFIDENCE = 0.5  # Minimum face detection confidence
+    
+    # Quality thresholds for adaptive matching
+    HIGH_QUALITY_THRESHOLD = 0.8
+    MIN_HIGH_QUALITY_COUNT = 5
     
     def __init__(self, db: Session, adapter: Optional[IFaceRecognitionAdapter] = None):
         self.db = db
@@ -42,6 +70,12 @@ class RecognitionService:
         
         # Lazy load adapter
         self._adapter = adapter
+        
+        # Initialize enhancement components
+        self.quality_analyzer = QualityAnalyzer()
+        self.pose_classifier = PoseClassifier()
+        self.centroid_manager = CentroidManager(db)
+        self.duplicate_checker = DuplicateChecker(db)
     
     @property
     def adapter(self) -> IFaceRecognitionAdapter:
@@ -57,20 +91,32 @@ class RecognitionService:
         self,
         user_id: UUID,
         image_bytes: bytes,
-        source_path: Optional[str] = None
+        source_path: Optional[str] = None,
+        skip_quality_check: bool = False,
+        skip_duplicate_check: bool = False
     ) -> EnrollmentResult:
         """
-        Enroll a single face image for a user.
+        Enroll a single face image for a user with quality and duplicate checks.
         
         Args:
             user_id: User to enroll
             image_bytes: Image file bytes
             source_path: Optional source file path
+            skip_quality_check: Skip quality validation (for testing)
+            skip_duplicate_check: Skip duplicate detection (for testing)
             
         Returns:
-            EnrollmentResult with status
+            EnrollmentResult with status, quality score, and pose category
         """
         try:
+            # Check enrollment limit
+            can_enroll, limit_reason = self.duplicate_checker.can_enroll_more(user_id)
+            if not can_enroll:
+                return EnrollmentResult(
+                    success=False,
+                    message=limit_reason
+                )
+            
             # Convert bytes to numpy array
             image = self._bytes_to_image(image_bytes)
             if image is None:
@@ -88,35 +134,79 @@ class RecognitionService:
                     message="No face detected in image"
                 )
             
-            if result.face_count > 1:
-                return EnrollmentResult(
-                    success=False,
-                    message=f"Multiple faces detected ({result.face_count}). Please use single-face image"
-                )
+            # Get face bounding box for quality analysis
+            face_bbox = result.face_locations[0] if result.face_locations else (0, 0, image.shape[1], image.shape[0])
+            # Convert from (top, right, bottom, left) to (x, y, w, h)
+            top, right, bottom, left = face_bbox
+            face_bbox_xywh = (left, top, right - left, bottom - top)
             
-            # Check detection confidence
-            if result.confidence_scores[0] < self.MIN_DETECTION_CONFIDENCE:
-                return EnrollmentResult(
-                    success=False,
-                    message="Face detection confidence too low"
-                )
+            # Analyze quality
+            quality_metrics = self.quality_analyzer.analyze(
+                image, face_bbox_xywh, result.confidence_scores[0]
+            )
             
-            # Store encoding
+            # Validate quality (unless skipped)
+            if not skip_quality_check:
+                is_acceptable, rejection_reason = self.quality_analyzer.is_acceptable(
+                    quality_metrics, face_count=result.face_count
+                )
+                if not is_acceptable:
+                    return EnrollmentResult(
+                        success=False,
+                        message=rejection_reason,
+                        quality_score=quality_metrics.overall_score
+                    )
+            
+            # Get embedding
+            embedding = result.embeddings[0]
+            
+            # Check for duplicates (unless skipped)
+            if not skip_duplicate_check:
+                existing_embeddings = self.duplicate_checker.get_existing_embeddings(user_id)
+                is_duplicate, dup_reason = self.duplicate_checker.is_duplicate(embedding, existing_embeddings)
+                if is_duplicate:
+                    return EnrollmentResult(
+                        success=False,
+                        message=dup_reason,
+                        quality_score=quality_metrics.overall_score
+                    )
+            
+            # Classify pose
+            pose_info = None
+            pose_category = None
+            try:
+                # Try to get pose from InsightFace face object
+                faces = self.adapter.app.get(image[:, :, ::-1])  # RGB to BGR
+                if faces:
+                    pose_info = self.pose_classifier.classify_from_face(faces[0])
+                    pose_category = pose_info.category.value if pose_info else None
+            except Exception as e:
+                logger.warning(f"Pose classification failed: {e}")
+            
+            # Store encoding with enhanced metadata
             encoding = FaceEncoding(
                 user_id=user_id,
-                encoding=result.embeddings[0].tolist(),
+                encoding=embedding.tolist(),
                 encoding_version=self.adapter.name,
                 image_quality_score=result.confidence_scores[0],
+                quality_score=quality_metrics.overall_score,
+                pose_category=pose_category,
+                is_adaptive=False,
                 source_image_path=source_path
             )
             
             self.encoding_repo.create(encoding)
             
+            # Update centroid
+            self._update_user_centroid(user_id)
+            
             return EnrollmentResult(
                 success=True,
                 user_id=user_id,
                 encodings_count=1,
-                message="Face enrolled successfully"
+                message="Face enrolled successfully",
+                quality_score=quality_metrics.overall_score,
+                pose_category=pose_category
             )
             
         except Exception as e:
@@ -125,6 +215,27 @@ class RecognitionService:
                 success=False,
                 message=f"Enrollment failed: {str(e)}"
             )
+    
+    def _update_user_centroid(self, user_id: UUID) -> None:
+        """Update centroid for a user after enrollment changes."""
+        try:
+            encodings = self.encoding_repo.find_by_user(user_id)
+            if not encodings:
+                self.centroid_manager.delete_centroid(user_id)
+                return
+            
+            embeddings = [np.array(e.encoding, dtype=np.float32) for e in encodings]
+            quality_scores = [e.quality_score for e in encodings]
+            pose_categories = [e.pose_category for e in encodings if e.pose_category]
+            
+            self.centroid_manager.update_for_user(
+                user_id=user_id,
+                embeddings=embeddings,
+                quality_scores=quality_scores,
+                pose_categories=pose_categories
+            )
+        except Exception as e:
+            logger.error(f"Failed to update centroid for user {user_id}: {e}")
     
     def enroll_multiple(
         self,
@@ -222,35 +333,58 @@ class RecognitionService:
         known_encodings: List[Tuple[UUID, List[float]]]
     ) -> RecognitionResult:
         """
-        Find best match with ambiguity detection.
+        Find best match with ambiguity detection and centroid comparison.
+        Uses adaptive thresholds based on enrollment quality.
         """
         # Calculate distances for each user (best distance per user)
-        user_distances: Dict[UUID, float] = {}
+        user_distances: Dict[UUID, Tuple[float, bool]] = {}  # user_id -> (distance, centroid_used)
         
+        # Group encodings by user
+        user_embeddings: Dict[UUID, List[np.ndarray]] = {}
         for user_id, encoding in known_encodings:
-            distance = self.adapter.compare_embeddings(
-                query_embedding,
-                np.array(encoding, dtype=np.float32)
-            )
+            if user_id not in user_embeddings:
+                user_embeddings[user_id] = []
+            user_embeddings[user_id].append(np.array(encoding, dtype=np.float32))
+        
+        # For each user, compare against both individual embeddings and centroid
+        for user_id, embeddings in user_embeddings.items():
+            # Get best individual distance
+            best_individual = float('inf')
+            for emb in embeddings:
+                distance = self.adapter.compare_embeddings(query_embedding, emb)
+                if distance < best_individual:
+                    best_individual = distance
             
-            if user_id not in user_distances or distance < user_distances[user_id]:
-                user_distances[user_id] = distance
+            # Get centroid distance
+            centroid = self.centroid_manager.get_centroid(user_id)
+            centroid_distance = float('inf')
+            if centroid is not None:
+                centroid_distance = self.adapter.compare_embeddings(query_embedding, centroid)
+            
+            # Use minimum of centroid and individual
+            if centroid_distance <= best_individual:
+                user_distances[user_id] = (centroid_distance, True)
+            else:
+                user_distances[user_id] = (best_individual, False)
         
         # Sort by distance
-        sorted_matches = sorted(user_distances.items(), key=lambda x: x[1])
+        sorted_matches = sorted(user_distances.items(), key=lambda x: x[1][0])
         
         if not sorted_matches:
             return RecognitionResult(matched=False, message="No matches found")
         
-        best_user, best_distance = sorted_matches[0]
-        second_distance = sorted_matches[1][1] if len(sorted_matches) > 1 else float('inf')
+        best_user, (best_distance, centroid_used) = sorted_matches[0]
+        second_distance = sorted_matches[1][1][0] if len(sorted_matches) > 1 else float('inf')
+        
+        # Get adaptive threshold for best matching user
+        threshold = self.get_adaptive_threshold(best_user)
         
         # Check threshold
-        if best_distance > self.MATCH_THRESHOLD:
+        if best_distance > threshold:
             return RecognitionResult(
                 matched=False,
                 distance=best_distance,
-                message=f"No match (distance {best_distance:.3f} > threshold {self.MATCH_THRESHOLD})"
+                message=f"No match (distance {best_distance:.3f} > threshold {threshold})"
             )
         
         # Check ambiguity
@@ -262,15 +396,50 @@ class RecognitionService:
             )
         
         # Calculate confidence (inverse of distance, normalized)
-        confidence = max(0.0, min(1.0, 1.0 - (best_distance / self.MATCH_THRESHOLD)))
+        confidence = max(0.0, min(1.0, 1.0 - (best_distance / threshold)))
         
         return RecognitionResult(
             matched=True,
             user_id=str(best_user),
             confidence=confidence,
             distance=best_distance,
-            message="Match found"
+            message=f"Match found {'(centroid)' if centroid_used else '(individual)'}"
         )
+    
+    def get_adaptive_threshold(self, user_id: UUID) -> float:
+        """
+        Get match threshold based on user's enrollment quality.
+        
+        Returns:
+            0.35 for users with 5+ high-quality enrollments
+            0.45 for users with < 3 enrollments
+            0.40 for standard cases
+        """
+        try:
+            encodings = self.encoding_repo.find_by_user(user_id)
+            
+            if not encodings:
+                return self.THRESHOLD_LOW_ENROLLMENT
+            
+            count = len(encodings)
+            
+            if count < 3:
+                return self.THRESHOLD_LOW_ENROLLMENT
+            
+            # Count high-quality enrollments
+            high_quality_count = sum(
+                1 for e in encodings 
+                if e.quality_score >= self.HIGH_QUALITY_THRESHOLD
+            )
+            
+            if count >= self.MIN_HIGH_QUALITY_COUNT and high_quality_count >= self.MIN_HIGH_QUALITY_COUNT:
+                return self.THRESHOLD_HIGH_QUALITY
+            
+            return self.THRESHOLD_STANDARD
+            
+        except Exception as e:
+            logger.error(f"Error getting adaptive threshold: {e}")
+            return self.MATCH_THRESHOLD  # Fallback to default
     
     # ==================== Utilities ====================
     
@@ -306,3 +475,67 @@ class RecognitionService:
         except Exception as e:
             logger.error(f"Error checking enrollment: {e}")
             return False
+    
+    def get_enrollment_metrics(self, user_id: UUID) -> EnrollmentMetrics:
+        """
+        Get detailed enrollment quality metrics for a user.
+        
+        Returns:
+            EnrollmentMetrics with count, quality, pose coverage, and re-enrollment recommendation
+        """
+        try:
+            encodings = self.encoding_repo.find_by_user(user_id)
+            
+            if not encodings:
+                return EnrollmentMetrics(
+                    user_id=user_id,
+                    encoding_count=0,
+                    needs_re_enrollment=True,
+                    re_enrollment_reason="No face encodings found"
+                )
+            
+            # Calculate metrics
+            count = len(encodings)
+            quality_scores = [e.quality_score for e in encodings]
+            avg_quality = sum(quality_scores) / len(quality_scores) if quality_scores else 0.0
+            
+            # Get pose coverage
+            pose_categories = list(set(e.pose_category for e in encodings if e.pose_category))
+            
+            # Determine if re-enrollment is needed
+            needs_re_enrollment = False
+            re_enrollment_reason = None
+            
+            if avg_quality < 0.7:
+                needs_re_enrollment = True
+                re_enrollment_reason = f"Average quality too low ({avg_quality:.2f} < 0.7)"
+            elif len(pose_categories) < 3:
+                needs_re_enrollment = True
+                missing = self.pose_classifier.get_missing_categories(
+                    [PoseCategory(p) for p in pose_categories if p]
+                )
+                re_enrollment_reason = f"Incomplete pose coverage (missing: {', '.join(str(p.value) for p in missing[:3])})"
+            
+            # Get last updated time
+            last_updated = None
+            if encodings:
+                latest = max(encodings, key=lambda e: e.updated_at if e.updated_at else e.created_at)
+                last_updated = str(latest.updated_at or latest.created_at)
+            
+            return EnrollmentMetrics(
+                user_id=user_id,
+                encoding_count=count,
+                avg_quality_score=avg_quality,
+                pose_coverage=pose_categories,
+                needs_re_enrollment=needs_re_enrollment,
+                re_enrollment_reason=re_enrollment_reason,
+                last_updated=last_updated
+            )
+            
+        except Exception as e:
+            logger.error(f"Error getting enrollment metrics: {e}")
+            return EnrollmentMetrics(
+                user_id=user_id,
+                needs_re_enrollment=True,
+                re_enrollment_reason=f"Error: {str(e)}"
+            )

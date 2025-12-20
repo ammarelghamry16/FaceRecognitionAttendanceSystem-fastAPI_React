@@ -221,6 +221,28 @@ def get_all_users(
     return [UserResponse.model_validate(u) for u in users]
 
 
+@router.get("/users/search", response_model=List[UserResponse])
+def search_users(
+    q: str = Query(..., min_length=1, description="Search query (name or student ID)"),
+    role: str = Query(None, description="Filter by role (student, mentor, admin)"),
+    limit: int = Query(20, ge=1, le=50),
+    current_user: User = Depends(require_role(["admin", "mentor"])),
+    db: Session = Depends(get_db_session)
+):
+    """
+    Search users by name or student ID.
+    
+    - **q**: Search query (matches full_name or student_id)
+    - **role**: Optional role filter
+    - **limit**: Maximum results to return (default 20, max 50)
+    
+    Returns matching users sorted by relevance.
+    """
+    auth_service = AuthService(db)
+    users = auth_service.user_repo.search(q, role, limit)
+    return [UserResponse.model_validate(u) for u in users]
+
+
 @router.get("/users/{user_id}", response_model=UserResponse)
 def get_user(
     user_id: UUID,

@@ -11,7 +11,7 @@ from ..services import ScheduleService, EnrollmentService
 from ..schemas import (
     CourseCreate, CourseUpdate, CourseResponse,
     ClassCreate, ClassUpdate, ClassResponse, ClassDetailResponse,
-    EnrollmentCreate, EnrollmentResponse,
+    EnrollmentCreate, EnrollmentResponse, EnrollmentWithStudentResponse,
     ScheduleResponse
 )
 from shared.models.enums import UserRole, WeekDay
@@ -330,14 +330,14 @@ def get_student_enrollments(
     return enrollments
 
 
-@router.get("/enrollments/class/{class_id}", response_model=List[EnrollmentResponse])
+@router.get("/enrollments/class/{class_id}", response_model=List[EnrollmentWithStudentResponse])
 def get_class_enrollments(
     class_id: UUID,
     db: Session = Depends(get_db_session)
 ):
-    """Get all enrollments for a class."""
+    """Get all enrollments for a class with student details."""
     service = EnrollmentService(db)
-    enrollments = service.get_class_enrollments(class_id)
+    enrollments = service.get_class_enrollments_with_students(class_id)
     return enrollments
 
 

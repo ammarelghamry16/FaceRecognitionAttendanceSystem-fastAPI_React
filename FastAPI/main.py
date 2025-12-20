@@ -13,6 +13,7 @@ from services.attendance_service.api.routes import router as attendance_router
 from services.ai_service.api.routes import router as ai_router
 from services.notification_service.api.routes import router as notification_router
 from services.notification_service.api.websocket import websocket_router as notification_ws_router
+from services.stats_service.api.routes import router as stats_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -75,6 +76,13 @@ app.include_router(
     tags=["Notification WebSocket"]
 )
 
+# Stats Service Router
+app.include_router(
+    stats_router,
+    prefix="/api/stats",
+    tags=["Stats Service"]
+)
+
 # Health Check Endpoint
 @app.get("/", tags=["Health"])
 def root():
@@ -92,4 +100,4 @@ def health_check():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

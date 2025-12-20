@@ -45,6 +45,8 @@ export interface ClassCreate {
 export interface Enrollment {
   id: string;
   student_id: string;
+  student_name?: string;
+  student_readable_id?: string;
   class_id: string;
   enrolled_at: string;
 }

@@ -13,6 +13,7 @@ from .response import (
     ClassResponse,
     ClassDetailResponse,
     EnrollmentResponse,
+    EnrollmentWithStudentResponse,
     ScheduleResponse
 )
 
@@ -26,5 +27,6 @@ __all__ = [
     'ClassResponse',
     'ClassDetailResponse',
     'EnrollmentResponse',
+    'EnrollmentWithStudentResponse',
     'ScheduleResponse'
 ]
