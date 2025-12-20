@@ -120,3 +120,27 @@ class UserRepository:
     def activate(self, user_id: UUID) -> Optional[User]:
         """Activate a user account."""
         return self.update(user_id, is_active=True)
+    
+    def search(self, query: str, role: Optional[str] = None, limit: int = 20) -> List[User]:
+        """
+        Search users by name or student ID.
+        
+        Args:
+            query: Search query (matches full_name or student_id)
+            role: Optional role filter
+            limit: Maximum results to return
+            
+        Returns:
+            List of matching users
+        """
+        search_pattern = f"%{query}%"
+        
+        q = self.db.query(User).filter(
+            User.is_active == True,
+            (User.full_name.ilike(search_pattern) | User.student_id.ilike(search_pattern))
+        )
+        
+        if role:
+            q = q.filter(User.role == role)
+        
+        return q.limit(limit).all()

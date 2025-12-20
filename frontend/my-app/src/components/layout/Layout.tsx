@@ -24,13 +24,13 @@ export default function Layout() {
   }
 
   return (
-    <div className="min-h-screen flex bg-background">
-      {/* Sidebar */}
+    <div className="h-screen flex overflow-hidden bg-background">
+      {/* Sidebar - fixed height, doesn't scroll with content */}
       <Sidebar />
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-6">
+      {/* Main Content - scrollable area with mobile top padding for header */}
+      <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
+        <div className="p-4 md:p-6">
           <Outlet />
         </div>
       </main>

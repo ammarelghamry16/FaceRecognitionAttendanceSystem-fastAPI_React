@@ -17,7 +17,8 @@ from ..schemas.response import (
     EnrollmentResponse,
     RecognitionResponse,
     FaceEncodingResponse,
-    UserEnrollmentStatus
+    UserEnrollmentStatus,
+    EnrollmentMetricsResponse
 )
 
 router = APIRouter()
@@ -55,7 +56,9 @@ async def enroll_face(
         success=result.success,
         user_id=result.user_id,
         encodings_count=result.encodings_count,
-        message=result.message
+        message=result.message,
+        quality_score=result.quality_score,
+        pose_category=result.pose_category
     )
 
 
@@ -203,3 +206,33 @@ def delete_user_enrollment(
         "deleted_count": count,
         "message": f"Deleted {count} encodings for user {user_id}"
     }
+
+
+@router.get("/enrollment/metrics/{user_id}", response_model=EnrollmentMetricsResponse)
+def get_enrollment_metrics(
+    user_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db_session)
+):
+    """
+    Get detailed enrollment quality metrics for a user.
+    
+    Returns:
+    - encoding_count: Number of enrolled face images
+    - avg_quality_score: Average quality score (0.0-1.0)
+    - pose_coverage: List of captured pose categories
+    - needs_re_enrollment: Whether user should re-enroll
+    - re_enrollment_reason: Reason for re-enrollment recommendation
+    """
+    service = RecognitionService(db)
+    metrics = service.get_enrollment_metrics(user_id)
+    
+    return EnrollmentMetricsResponse(
+        user_id=metrics.user_id,
+        encoding_count=metrics.encoding_count,
+        avg_quality_score=metrics.avg_quality_score,
+        pose_coverage=metrics.pose_coverage,
+        needs_re_enrollment=metrics.needs_re_enrollment,
+        re_enrollment_reason=metrics.re_enrollment_reason,
+        last_updated=metrics.last_updated
+    )

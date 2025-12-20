@@ -1,0 +1,23 @@
+{
+    "name": "attendance-ai",
+    "version": "1.0.0",
+    "description": "Face Recognition Attendance System",
+    "scripts": {
+        "dev": "concurrently -k -n \"backend,frontend\" -c \"yellow,cyan\" \"npm run backend\" \"npm run frontend\"",
+        "backend": "cd FastAPI && .\\venv\\Scripts\\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+        "frontend": "cd frontend/my-app && npm run dev",
+        "status": "node scripts/status.js",
+        "install:all": "cd frontend/my-app && npm install"
+    },
+    "keywords": [
+        "attendance",
+        "face-recognition",
+        "fastapi",
+        "react"
+    ],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "concurrently": "^8.2.2"
+    }
+}

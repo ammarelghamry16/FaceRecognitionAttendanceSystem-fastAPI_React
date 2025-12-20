@@ -2,7 +2,8 @@
  * Courses Page - CRUD for courses
  */
 import { useState, useEffect } from 'react';
-import { courseApi, Course, CourseCreate } from '@/services/scheduleService';
+import { courseApi } from '@/services/scheduleService';
+import type { Course, CourseCreate } from '@/services/scheduleService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';

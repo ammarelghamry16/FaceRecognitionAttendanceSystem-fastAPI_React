@@ -64,6 +64,18 @@ class EnrollmentResponse(BaseModel):
         from_attributes = True
 
 
+class EnrollmentWithStudentResponse(BaseModel):
+    """Schema for enrollment response with student details"""
+    student_id: UUID
+    student_name: Optional[str] = None
+    student_readable_id: Optional[str] = None
+    class_id: UUID
+    enrolled_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class ScheduleResponse(BaseModel):
     """Schema for schedule response (list of classes)"""
     classes: List[ClassResponse]

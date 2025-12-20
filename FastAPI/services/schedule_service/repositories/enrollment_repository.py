@@ -88,7 +88,6 @@ class EnrollmentRepository:
         """
         return (
             self.db.query(self.model)
-            .options(joinedload(self.model.student))
             .filter(self.model.class_id == class_id)
             .all()
         )

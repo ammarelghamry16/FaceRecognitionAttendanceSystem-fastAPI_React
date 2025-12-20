@@ -2,7 +2,8 @@
  * Classes Page - CRUD for classes
  */
 import { useState, useEffect } from 'react';
-import { classApi, courseApi, Class, ClassCreate, Course } from '@/services/scheduleService';
+import { classApi, courseApi } from '@/services/scheduleService';
+import type { Class, ClassCreate, Course } from '@/services/scheduleService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -288,13 +289,12 @@ export default function Classes() {
                   </div>
                   <div className="mt-2">
                     <span
-                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        cls.state === 'active'
+                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${cls.state === 'active'
                           ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
                           : cls.state === 'completed'
-                          ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-                          : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                      }`}
+                            ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                            : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+                        }`}
                     >
                       {cls.state}
                     </span>

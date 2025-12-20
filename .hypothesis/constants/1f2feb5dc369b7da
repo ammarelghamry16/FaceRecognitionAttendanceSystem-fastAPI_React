@@ -1,0 +1,4 @@
+# file: C:\Users\ammar\Desktop\KiroProjVersion\FaceRecognitionAttendanceSystem-fastAPI_React\FastAPI\services\ai_service\services\pose_classifier.py
+# hypothesis_version: 6.148.7
+
+[0.0, 10.0, 15.0, 25.0, 45.0, 'down_15', 'front', 'landmark_2d_106', 'left_30', 'pose', 'right_30', 'up_15']

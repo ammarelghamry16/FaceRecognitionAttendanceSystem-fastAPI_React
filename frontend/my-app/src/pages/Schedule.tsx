@@ -3,8 +3,9 @@
  */
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { classApi, Class } from '@/services/scheduleService';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { classApi } from '@/services/scheduleService';
+import type { Class } from '@/services/scheduleService';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, Clock, MapPin, BookOpen } from 'lucide-react';
 
@@ -75,8 +76,8 @@ export default function Schedule() {
           {user?.role === 'admin'
             ? 'Full schedule view'
             : user?.role === 'mentor'
-            ? 'Your assigned classes'
-            : 'Your enrolled classes'}
+              ? 'Your assigned classes'
+              : 'Your enrolled classes'}
         </p>
       </div>
 
@@ -119,7 +120,7 @@ export default function Schedule() {
         <div className="space-y-6">
           {DAYS_OF_WEEK.filter((day) => classesByDay[day]?.length > 0).map((day) => (
             <div key={day}>
-              <h2 className="text-lg font-semibold capitalize mb-3">{day}</h2>
+              <h2 className="text-lg font-semibold capitalize mb-3 sticky top-0 bg-background py-2 z-10 border-b">{day}</h2>
               <div className="grid gap-3">
                 {classesByDay[day].map((cls) => (
                   <Card key={cls.id} className="hover:shadow-md transition-shadow">
@@ -143,13 +144,12 @@ export default function Schedule() {
                           </div>
                         </div>
                         <span
-                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            cls.state === 'active'
-                              ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                              : cls.state === 'completed'
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${cls.state === 'active'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                            : cls.state === 'completed'
                               ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
                               : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                          }`}
+                            }`}
                         >
                           {cls.state}
                         </span>
