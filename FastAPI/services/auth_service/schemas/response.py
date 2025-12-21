@@ -16,6 +16,7 @@ class UserResponse(BaseModel):
     full_name: str
     role: str
     student_id: Optional[str] = None
+    group: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

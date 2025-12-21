@@ -78,10 +78,9 @@ class AuthService:
         password_hash = self.password_service.hash_password(password)
         
         # Auto-generate student ID for students if not provided
-        enrollment_year = None
         if role == "student":
-            enrollment_year = datetime.now().year
             if not student_id:
+                enrollment_year = datetime.now().year
                 student_id = self.student_id_service.generate_student_id(enrollment_year)
         
         # Create user
@@ -91,7 +90,6 @@ class AuthService:
             full_name=full_name,
             role=role,
             student_id=student_id,
-            enrollment_year=enrollment_year,
             is_active=True
         )
         

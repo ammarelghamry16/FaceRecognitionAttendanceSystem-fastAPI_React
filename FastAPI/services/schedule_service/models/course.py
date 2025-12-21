@@ -21,6 +21,14 @@ class Course(Base, TimestampMixin):
 
     # Relationships
     classes = relationship("Class", back_populates="course", cascade="all, delete-orphan")
+    
+    # Many-to-many relationship with mentors through course_mentors junction table
+    course_mentors = relationship(
+        "CourseMentor",
+        backref="course",
+        cascade="all, delete-orphan",
+        lazy="dynamic"
+    )
 
     def __repr__(self):
         return f"<Course(id={self.id}, code={self.code}, name={self.name})>"

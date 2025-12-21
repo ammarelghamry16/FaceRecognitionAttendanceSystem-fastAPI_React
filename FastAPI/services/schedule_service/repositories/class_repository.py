@@ -93,3 +93,105 @@ class ClassRepository(BaseRepository[Class]):
             .filter(self.model.id == class_id)
             .first()
         )
+    
+    def find_conflicts_by_room(
+        self, 
+        room_number: str, 
+        day_of_week: str, 
+        schedule_time, 
+        duration_minutes: int = 90,
+        exclude_class_id: Optional[UUID] = None
+    ) -> List[Class]:
+        """
+        Find classes that conflict with the given room, day, and time.
+        """
+        from datetime import datetime, timedelta
+        
+        # Calculate time range
+        if isinstance(schedule_time, str):
+            start_time = datetime.strptime(schedule_time, "%H:%M").time()
+        else:
+            start_time = schedule_time
+        
+        # Create datetime for calculation
+        base_date = datetime(2000, 1, 1)
+        start_dt = datetime.combine(base_date, start_time)
+        end_dt = start_dt + timedelta(minutes=duration_minutes)
+        end_time = end_dt.time()
+        
+        query = (
+            self.db.query(self.model)
+            .options(joinedload(self.model.course))
+            .filter(
+                self.model.room_number == room_number,
+                self.model.day_of_week == day_of_week
+            )
+        )
+        
+        if exclude_class_id:
+            query = query.filter(self.model.id != exclude_class_id)
+        
+        # Get all classes in that room on that day and filter by time overlap
+        classes = query.all()
+        conflicts = []
+        
+        for cls in classes:
+            cls_start = cls.schedule_time
+            cls_start_dt = datetime.combine(base_date, cls_start)
+            cls_end_dt = cls_start_dt + timedelta(minutes=duration_minutes)
+            cls_end = cls_end_dt.time()
+            
+            # Check for overlap
+            if not (end_time <= cls_start or start_time >= cls_end):
+                conflicts.append(cls)
+        
+        return conflicts
+    
+    def find_conflicts_by_mentor(
+        self, 
+        mentor_id: UUID, 
+        day_of_week: str, 
+        schedule_time, 
+        duration_minutes: int = 90,
+        exclude_class_id: Optional[UUID] = None
+    ) -> List[Class]:
+        """
+        Find classes that conflict with the given mentor, day, and time.
+        """
+        from datetime import datetime, timedelta
+        
+        if isinstance(schedule_time, str):
+            start_time = datetime.strptime(schedule_time, "%H:%M").time()
+        else:
+            start_time = schedule_time
+        
+        base_date = datetime(2000, 1, 1)
+        start_dt = datetime.combine(base_date, start_time)
+        end_dt = start_dt + timedelta(minutes=duration_minutes)
+        end_time = end_dt.time()
+        
+        query = (
+            self.db.query(self.model)
+            .options(joinedload(self.model.course))
+            .filter(
+                self.model.mentor_id == mentor_id,
+                self.model.day_of_week == day_of_week
+            )
+        )
+        
+        if exclude_class_id:
+            query = query.filter(self.model.id != exclude_class_id)
+        
+        classes = query.all()
+        conflicts = []
+        
+        for cls in classes:
+            cls_start = cls.schedule_time
+            cls_start_dt = datetime.combine(base_date, cls_start)
+            cls_end_dt = cls_start_dt + timedelta(minutes=duration_minutes)
+            cls_end = cls_end_dt.time()
+            
+            if not (end_time <= cls_start or start_time >= cls_end):
+                conflicts.append(cls)
+        
+        return conflicts

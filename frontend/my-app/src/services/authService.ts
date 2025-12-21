@@ -12,12 +12,14 @@ export interface User {
   last_name?: string;
   role: 'student' | 'mentor' | 'admin';
   student_id?: string;
+  group?: string;
   is_active: boolean;
 }
 
 export interface LoginCredentials {
   email: string;
   password: string;
+  rememberMe?: boolean;
 }
 
 export interface RegisterData {
@@ -26,6 +28,7 @@ export interface RegisterData {
   full_name: string;
   role: 'student' | 'mentor' | 'admin';
   student_id?: string;
+  group?: string;
 }
 
 export interface AuthResponse {
@@ -40,20 +43,54 @@ export interface ChangePasswordData {
   new_password: string;
 }
 
+// Storage helper - uses localStorage for "remember me", sessionStorage otherwise
+const getStorage = (): Storage => {
+  const rememberMe = localStorage.getItem('remember_me') === 'true';
+  return rememberMe ? localStorage : sessionStorage;
+};
+
 // Auth API
 export const authApi = {
   /**
    * Login with email and password
    */
   login: async (credentials: LoginCredentials): Promise<AuthResponse> => {
-    const response = await api.post<AuthResponse>('/api/auth/login', credentials);
+    try {
+      const response = await api.post<AuthResponse>('/api/auth/login', {
+        email: credentials.email,
+        password: credentials.password,
+      });
 
-    // Store tokens
-    localStorage.setItem('access_token', response.data.access_token);
-    localStorage.setItem('refresh_token', response.data.refresh_token);
-    localStorage.setItem('user', JSON.stringify(response.data.user));
+      // Determine storage based on rememberMe
+      // Admin accounts NEVER use remember me for security reasons
+      const isAdmin = response.data.user.role === 'admin';
+      const rememberMe = isAdmin ? false : (credentials.rememberMe ?? false);
 
-    return response.data;
+      // Store the remember me preference in localStorage (always persists)
+      if (rememberMe) {
+        localStorage.setItem('remember_me', 'true');
+      } else {
+        localStorage.removeItem('remember_me');
+      }
+
+      // Get the appropriate storage (admins always use sessionStorage)
+      const storage = rememberMe ? localStorage : sessionStorage;
+
+      // Store tokens in the appropriate storage
+      storage.setItem('access_token', response.data.access_token);
+      storage.setItem('refresh_token', response.data.refresh_token);
+      storage.setItem('user', JSON.stringify(response.data.user));
+
+      return response.data;
+    } catch (error: unknown) {
+      // Extract error message from API response
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as { response?: { data?: { detail?: string } } };
+        const message = axiosError.response?.data?.detail || 'Invalid email or password';
+        throw new Error(message);
+      }
+      throw new Error('Network error. Please try again.');
+    }
   },
 
   /**
@@ -68,7 +105,8 @@ export const authApi = {
    * Refresh access token
    */
   refreshToken: async (): Promise<AuthResponse> => {
-    const refreshToken = localStorage.getItem('refresh_token');
+    const storage = getStorage();
+    const refreshToken = storage.getItem('refresh_token');
     if (!refreshToken) {
       throw new Error('No refresh token available');
     }
@@ -77,8 +115,8 @@ export const authApi = {
       refresh_token: refreshToken
     });
 
-    localStorage.setItem('access_token', response.data.access_token);
-    localStorage.setItem('refresh_token', response.data.refresh_token);
+    storage.setItem('access_token', response.data.access_token);
+    storage.setItem('refresh_token', response.data.refresh_token);
 
     return response.data;
   },
@@ -87,9 +125,14 @@ export const authApi = {
    * Logout - clear stored tokens
    */
   logout: async (): Promise<void> => {
+    // Clear from both storages to be safe
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('user');
+    localStorage.removeItem('remember_me');
+    sessionStorage.removeItem('access_token');
+    sessionStorage.removeItem('refresh_token');
+    sessionStorage.removeItem('user');
   },
 
   /**
@@ -105,7 +148,8 @@ export const authApi = {
    */
   updateProfile: async (data: Partial<User>): Promise<User> => {
     const response = await api.put<User>('/api/auth/me', data);
-    localStorage.setItem('user', JSON.stringify(response.data));
+    const storage = getStorage();
+    storage.setItem('user', JSON.stringify(response.data));
     return response.data;
   },
 
@@ -125,10 +169,14 @@ export const authApi = {
   },
 
   /**
-   * Get current user from localStorage
+   * Get current user from localStorage or sessionStorage
    */
   getCurrentUser: (): User | null => {
-    const userStr = localStorage.getItem('user');
+    // Check localStorage first (remember me), then sessionStorage
+    let userStr = localStorage.getItem('user');
+    if (!userStr) {
+      userStr = sessionStorage.getItem('user');
+    }
     if (!userStr) return null;
     try {
       return JSON.parse(userStr) as User;
@@ -141,14 +189,14 @@ export const authApi = {
    * Check if user is authenticated
    */
   isAuthenticated: (): boolean => {
-    return !!localStorage.getItem('access_token');
+    return !!(localStorage.getItem('access_token') || sessionStorage.getItem('access_token'));
   },
 
   /**
    * Get stored access token
    */
   getToken: (): string | null => {
-    return localStorage.getItem('access_token');
+    return localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
   },
 
   /**
@@ -160,6 +208,49 @@ export const authApi = {
     const response = await api.get<User[]>('/api/auth/users/search', { params });
     return response.data;
   },
+
+  /**
+   * Get all users (admin only)
+   */
+  getAllUsers: async (skip = 0, limit = 100, role?: string): Promise<User[]> => {
+    const params: Record<string, string | number> = { skip, limit };
+    if (role) params.role = role;
+    const response = await api.get<User[]>('/api/auth/users', { params });
+    return response.data;
+  },
+
+  /**
+   * Get all mentors
+   */
+  getMentors: async (): Promise<User[]> => {
+    const response = await api.get<User[]>('/api/auth/users', { params: { role: 'mentor' } });
+    return response.data;
+  },
+
+  /**
+   * Update a user (admin only)
+   */
+  updateUser: async (userId: string, data: Partial<User>): Promise<User> => {
+    const response = await api.put<User>(`/api/auth/users/${userId}`, data);
+    return response.data;
+  },
+
+  /**
+   * Deactivate a user (admin only)
+   */
+  deactivateUser: async (userId: string): Promise<User> => {
+    const response = await api.post<User>(`/api/auth/users/${userId}/deactivate`);
+    return response.data;
+  },
+
+  /**
+   * Activate a user (admin only)
+   */
+  activateUser: async (userId: string): Promise<User> => {
+    const response = await api.post<User>(`/api/auth/users/${userId}/activate`);
+    return response.data;
+  },
 };
+
 
 export default authApi;

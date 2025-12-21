@@ -236,3 +236,22 @@ def get_enrollment_metrics(
         re_enrollment_reason=metrics.re_enrollment_reason,
         last_updated=metrics.last_updated
     )
+
+
+@router.get("/status")
+def get_ai_service_status(
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get AI service status including model info and concurrency settings.
+    
+    Returns:
+    - model_loaded: Whether the model is loaded
+    - execution_provider: CPU, CUDA, DirectML, or CoreML
+    - max_concurrent_requests: Maximum concurrent inference requests
+    - prefer_gpu: Whether GPU is preferred
+    """
+    from ..adapters.insightface_adapter import InsightFaceAdapter
+    
+    adapter = InsightFaceAdapter()
+    return adapter.get_status()

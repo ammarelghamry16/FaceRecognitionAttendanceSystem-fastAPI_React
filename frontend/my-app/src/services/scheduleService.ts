@@ -4,11 +4,19 @@
 import api from './api';
 
 // Types
+export interface MentorInfo {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
 export interface Course {
   id: string;
   code: string;
   name: string;
   description?: string;
+  mentor_ids: string[];
+  mentors: MentorInfo[];
   created_at: string;
   updated_at: string;
 }
@@ -17,6 +25,7 @@ export interface CourseCreate {
   code: string;
   name: string;
   description?: string;
+  mentor_ids?: string[];
 }
 
 export interface Class {
@@ -56,6 +65,28 @@ export interface EnrollmentCreate {
   class_id: string;
 }
 
+// Conflict checking types
+export interface ClassConflict {
+  id: string;
+  name: string;
+  room_number: string;
+  day_of_week: string;
+  schedule_time: string;
+  course_name?: string;
+}
+
+export interface ConflictCheckResult {
+  room_conflicts: ClassConflict[];
+  mentor_conflicts: ClassConflict[];
+  has_conflicts: boolean;
+}
+
+export interface CreateWithValidationResult {
+  success: boolean;
+  class: Class | null;
+  conflicts: ConflictCheckResult | null;
+}
+
 // Course API
 export const courseApi = {
   getAll: (skip = 0, limit = 100) =>
@@ -72,6 +103,16 @@ export const courseApi = {
 
   delete: (id: string) =>
     api.delete(`/api/schedule/courses/${id}`),
+
+  // Course mentor management
+  getMentors: (courseId: string) =>
+    api.get<MentorInfo[]>(`/api/schedule/courses/${courseId}/mentors`),
+
+  assignMentor: (courseId: string, mentorId: string) =>
+    api.post(`/api/schedule/courses/${courseId}/mentors`, { mentor_id: mentorId }),
+
+  removeMentor: (courseId: string, mentorId: string) =>
+    api.delete(`/api/schedule/courses/${courseId}/mentors/${mentorId}`),
 };
 
 // Class API
@@ -90,6 +131,22 @@ export const classApi = {
 
   delete: (id: string) =>
     api.delete(`/api/schedule/classes/${id}`),
+
+  // Conflict checking
+  checkConflicts: (params: {
+    room_number: string;
+    day_of_week: string;
+    schedule_time: string;
+    mentor_id?: string;
+    duration_minutes?: number;
+    exclude_class_id?: string;
+  }) =>
+    api.post<ConflictCheckResult>('/api/schedule/classes/check-conflicts', null, { params }),
+
+  createWithValidation: (data: ClassCreate, duration_minutes = 90) =>
+    api.post<CreateWithValidationResult>('/api/schedule/classes/create-with-validation', data, {
+      params: { duration_minutes }
+    }),
 
   // Schedule filtering
   getByStudent: (studentId: string, skip = 0, limit = 100) =>

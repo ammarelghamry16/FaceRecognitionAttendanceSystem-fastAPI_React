@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ScanFace,
   Users,
+  UserCog,
   Menu,
   X,
 } from 'lucide-react';
@@ -73,6 +74,12 @@ const navItems: NavItem[] = [
     title: 'Enrollments',
     href: '/enrollments',
     icon: Users,
+    roles: ['admin'],
+  },
+  {
+    title: 'User Management',
+    href: '/users',
+    icon: UserCog,
     roles: ['admin'],
   },
   {

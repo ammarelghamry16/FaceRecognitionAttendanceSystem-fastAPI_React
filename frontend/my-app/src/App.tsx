@@ -10,7 +10,6 @@ import { Toaster } from '@/components/ui/toaster';
 import {
   Landing,
   Login,
-  Register,
   Dashboard,
   Courses,
   Classes,
@@ -20,6 +19,7 @@ import {
   FaceEnrollment,
   Profile,
   Enrollments,
+  Users,
 } from '@/pages';
 
 function App() {
@@ -32,7 +32,6 @@ function App() {
               {/* Public Routes */}
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
 
               {/* Protected Routes - wrapped in Layout */}
               <Route element={<Layout />}>
@@ -45,6 +44,7 @@ function App() {
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/enrollments" element={<Enrollments />} />
+                <Route path="/users" element={<Users />} />
               </Route>
 
               {/* 404 - Redirect to landing */}
