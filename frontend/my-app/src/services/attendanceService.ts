@@ -61,7 +61,7 @@ export interface ManualAttendanceRequest {
 // Attendance API
 export const attendanceApi = {
   // ==================== Session Management ====================
-  
+
   /**
    * Start a new attendance session
    */
@@ -158,6 +158,28 @@ export const attendanceApi = {
    */
   getStudentStats: async (studentId: string): Promise<StudentStats> => {
     const response = await api.get<StudentStats>(`/api/attendance/history/student/${studentId}/stats`);
+    return response.data;
+  },
+
+  /**
+   * Get recognition window status for a session
+   */
+  getRecognitionWindowStatus: async (sessionId: string): Promise<{
+    is_active: boolean;
+    elapsed_minutes: number;
+    window_minutes: number;
+    remaining_minutes: number;
+    mode: 'auto' | 'manual_only';
+  }> => {
+    const response = await api.get(`/api/attendance/sessions/${sessionId}/recognition-window`);
+    return response.data;
+  },
+
+  /**
+   * Get all active sessions (admin only)
+   */
+  getAllActiveSessions: async (): Promise<AttendanceSession[]> => {
+    const response = await api.get<AttendanceSession[]>('/api/attendance/sessions/active');
     return response.data;
   },
 };

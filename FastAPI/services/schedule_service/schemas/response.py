@@ -7,12 +7,37 @@ from uuid import UUID
 from datetime import time, datetime
 
 
+class MentorInfo(BaseModel):
+    """Schema for mentor info in course response"""
+    id: UUID
+    full_name: str
+    email: str
+
+    class Config:
+        from_attributes = True
+
+
 class CourseResponse(BaseModel):
     """Schema for course response"""
     id: UUID
     code: str
     name: str
     description: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CourseWithMentorsResponse(BaseModel):
+    """Schema for course response with assigned mentors"""
+    id: UUID
+    code: str
+    name: str
+    description: Optional[str] = None
+    mentor_ids: List[UUID] = []
+    mentors: List[MentorInfo] = []
     created_at: datetime
     updated_at: datetime
 

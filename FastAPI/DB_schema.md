@@ -53,6 +53,15 @@ CREATE TABLE courses (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- COURSE_MENTORS (Junction table for many-to-many relationship)
+-- 1 Course can have many Mentors, 1 Mentor can teach many Courses
+CREATE TABLE course_mentors (
+    course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
+    mentor_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (course_id, mentor_id)
+);
+
 -- CLASSES (Best of Design 2: structured schedule, Best of Design 1: name and updated_at)
 CREATE TABLE classes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -147,6 +156,8 @@ CREATE INDEX idx_notifications_user_unread ON notifications(user_id) WHERE is_re
 
 -- Additional useful indexes
 CREATE INDEX idx_classes_course ON classes(course_id);
+CREATE INDEX idx_course_mentors_course ON course_mentors(course_id);
+CREATE INDEX idx_course_mentors_mentor ON course_mentors(mentor_id);
 CREATE INDEX idx_attendance_records_session ON attendance_records(session_id);
 CREATE INDEX idx_notifications_created ON notifications(created_at);
 CREATE INDEX idx_api_keys_user ON api_keys(user_id);

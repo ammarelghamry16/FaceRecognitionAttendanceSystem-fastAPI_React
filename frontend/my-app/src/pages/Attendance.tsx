@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle, XCircle, Clock, Play, Square, TrendingUp, Loader2, RefreshCw, Wifi, Download, FileText } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Play, Square, TrendingUp, Loader2, RefreshCw, Wifi, Download, FileText, Camera, Hand, Timer } from 'lucide-react';
 import { attendanceApi } from '@/services/attendanceService';
 import type { AttendanceSession, AttendanceRecord } from '@/services/attendanceService';
 import { exportToCSV, exportToPDF, type ExportRecord } from '@/utils/exportUtils';
@@ -16,6 +16,90 @@ import { CardSkeleton, TableRowSkeleton, Skeleton } from '@/components/ui/skelet
 import { classApi } from '@/services/scheduleService';
 import type { Class } from '@/services/scheduleService';
 import { toast } from '@/hooks/useToast';
+
+// Recognition window status type
+interface RecognitionWindowStatus {
+  is_active: boolean;
+  elapsed_minutes: number;
+  window_minutes: number;
+  remaining_minutes: number;
+  mode: 'auto' | 'manual_only';
+}
+
+// Recognition Window Status Component
+const RecognitionWindowIndicator = ({ sessionId }: { sessionId: string }) => {
+  const [status, setStatus] = useState<RecognitionWindowStatus | null>(null);
+  const [countdown, setCountdown] = useState<number>(0);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await attendanceApi.getRecognitionWindowStatus(sessionId);
+        setStatus(res);
+        setCountdown(res.remaining_minutes * 60); // Convert to seconds
+      } catch (err) {
+        console.error('Failed to fetch recognition window status:', err);
+      }
+    };
+
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 30000); // Update every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [sessionId]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (countdown <= 0) return;
+
+    const timer = setInterval(() => {
+      setCountdown(prev => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [countdown]);
+
+  if (!status) return null;
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className={`flex items-center gap-3 p-3 rounded-lg ${status.is_active
+      ? 'bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800'
+      : 'bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800'
+      }`}>
+      {status.is_active ? (
+        <>
+          <div className="flex items-center gap-2">
+            <Camera className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            <span className="font-medium text-blue-700 dark:text-blue-300">Auto Recognition Active</span>
+          </div>
+          <div className="flex items-center gap-1 ml-auto">
+            <Timer className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <span className="font-mono text-lg font-bold text-blue-700 dark:text-blue-300">
+              {formatTime(countdown)}
+            </span>
+            <span className="text-sm text-blue-600 dark:text-blue-400">remaining</span>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <Hand className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+            <span className="font-medium text-orange-700 dark:text-orange-300">Manual Mode Only</span>
+          </div>
+          <span className="text-sm text-orange-600 dark:text-orange-400 ml-auto">
+            Auto-recognition window expired ({status.window_minutes} min)
+          </span>
+        </>
+      )}
+    </div>
+  );
+};
 
 const StatusBadge = ({ status }: { status: string }) => {
   const config: Record<string, { icon: typeof CheckCircle; className: string }> = {
@@ -357,11 +441,17 @@ export default function Attendance() {
   }
 
   // Mentor/Admin view
+  const isMentor = user?.role === 'mentor';
+  const isAdmin = user?.role === 'admin';
+  const canControlSession = isMentor; // Only mentors can start/end sessions
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Attendance</h1>
-        <p className="text-muted-foreground">Manage attendance sessions</p>
+        <p className="text-muted-foreground">
+          {isAdmin ? 'View attendance sessions (spectate mode)' : 'Manage attendance sessions'}
+        </p>
       </div>
 
       {error && (
@@ -370,50 +460,117 @@ export default function Attendance() {
         </div>
       )}
 
-      {/* Session Control */}
-      <Card className={activeSession ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20' : ''}>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              {activeSession && <span className="h-3 w-3 rounded-full bg-green-500 animate-pulse" />}
-              {activeSession ? 'Active Session' : 'Start Session'}
-            </CardTitle>
-            {activeSession && (
+      {/* Admin spectate notice */}
+      {isAdmin && !activeSession && (
+        <Card className="border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+                <Wifi className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="font-medium text-blue-700 dark:text-blue-400">Spectate Mode</p>
+                <p className="text-sm text-muted-foreground">
+                  As an admin, you can view active sessions but cannot start or end them.
+                  Only mentors can control attendance sessions for their classes.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Session Control - Only for mentors */}
+      {canControlSession && (
+        <Card className={activeSession ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20' : ''}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                {activeSession && <span className="h-3 w-3 rounded-full bg-green-500 animate-pulse" />}
+                {activeSession ? 'Active Session' : 'Start Session'}
+              </CardTitle>
+              {activeSession && (
+                <Badge variant="outline">
+                  {classes.find(c => c.id === activeSession.class_id)?.name || 'Class'}
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!activeSession ? (
+              <div className="space-y-4">
+                <Select value={selectedClass} onValueChange={setSelectedClass}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a class" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classes.map((cls) => (
+                      <SelectItem key={cls.id} value={cls.id}>
+                        {cls.name} - {cls.day_of_week} {cls.schedule_time}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  onClick={handleStartSession}
+                  disabled={!selectedClass || isStarting}
+                >
+                  {isStarting ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  Start Attendance Session
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Recognition Window Status */}
+                <RecognitionWindowIndicator sessionId={activeSession.id} />
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                    <div className="text-2xl font-bold text-green-700 dark:text-green-400">{stats.present}</div>
+                    <div className="text-xs text-green-600 dark:text-green-500">Present</div>
+                  </div>
+                  <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                    <div className="text-2xl font-bold text-red-700 dark:text-red-400">{stats.absent}</div>
+                    <div className="text-xs text-red-600 dark:text-red-500">Absent</div>
+                  </div>
+                  <div className="text-center p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
+                    <div className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">{stats.late}</div>
+                    <div className="text-xs text-yellow-600 dark:text-yellow-500">Late</div>
+                  </div>
+                </div>
+                <Button variant="destructive" onClick={handleEndSession}>
+                  <Square className="h-4 w-4 mr-2" />
+                  End Session
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Admin view - Show active session stats without controls */}
+      {isAdmin && activeSession && (
+        <Card className="border-green-500/50 bg-green-50/50 dark:bg-green-950/20">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <span className="h-3 w-3 rounded-full bg-green-500 animate-pulse" />
+                Active Session (Viewing)
+              </CardTitle>
               <Badge variant="outline">
                 {classes.find(c => c.id === activeSession.class_id)?.name || 'Class'}
               </Badge>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {!activeSession ? (
-            <div className="space-y-4">
-              <Select value={selectedClass} onValueChange={setSelectedClass}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a class" />
-                </SelectTrigger>
-                <SelectContent>
-                  {classes.map((cls) => (
-                    <SelectItem key={cls.id} value={cls.id}>
-                      {cls.name} - {cls.day_of_week} {cls.schedule_time}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                onClick={handleStartSession}
-                disabled={!selectedClass || isStarting}
-              >
-                {isStarting ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4 mr-2" />
-                )}
-                Start Attendance Session
-              </Button>
             </div>
-          ) : (
+          </CardHeader>
+          <CardContent>
             <div className="space-y-4">
+              {/* Recognition Window Status */}
+              <RecognitionWindowIndicator sessionId={activeSession.id} />
+
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
                   <div className="text-2xl font-bold text-green-700 dark:text-green-400">{stats.present}</div>
@@ -428,14 +585,33 @@ export default function Attendance() {
                   <div className="text-xs text-yellow-600 dark:text-yellow-500">Late</div>
                 </div>
               </div>
-              <Button variant="destructive" onClick={handleEndSession}>
-                <Square className="h-4 w-4 mr-2" />
-                End Session
-              </Button>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Class selector for admin to view sessions */}
+      {isAdmin && !activeSession && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Select Class to View</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Select value={selectedClass} onValueChange={setSelectedClass}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a class to view its session" />
+              </SelectTrigger>
+              <SelectContent>
+                {classes.map((cls) => (
+                  <SelectItem key={cls.id} value={cls.id}>
+                    {cls.name} - {cls.day_of_week} {cls.schedule_time}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Records Table */}
       {activeSession && (

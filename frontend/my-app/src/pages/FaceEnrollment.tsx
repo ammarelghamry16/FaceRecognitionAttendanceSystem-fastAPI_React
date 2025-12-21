@@ -1,13 +1,22 @@
 /**
- * Face Enrollment Page - Real backend integration
+ * Face Enrollment Page - iPhone-style face enrollment with visual feedback
  */
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Camera, CheckCircle, AlertCircle, Trash, Video, X, Loader2, Lightbulb } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { Camera, CheckCircle, AlertCircle, Trash, Video, X, Loader2, Lightbulb, Sparkles } from 'lucide-react';
 import { useFaceEnrollment } from '@/hooks/useFaceEnrollment';
+
+type FacePosition = 'no_face' | 'too_far' | 'too_close' | 'off_center' | 'good';
+
+interface FaceDetectionResult {
+  position: FacePosition;
+  message: string;
+  faceBox?: { x: number; y: number; width: number; height: number };
+}
 
 export default function FaceEnrollment() {
   const { user } = useAuth();
@@ -25,8 +34,23 @@ export default function FaceEnrollment() {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+
+  // Face detection state
+  const [facePosition, setFacePosition] = useState<FacePosition>('no_face');
+  const [positionMessage, setPositionMessage] = useState('Position your face in the oval');
+  const [isAutoCapturing, setIsAutoCapturing] = useState(false);
+  const [autoCaptureProgress, setAutoCaptureProgress] = useState(0);
+  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const detectionIntervalRef = useRef<number | null>(null);
+  const goodPositionStartRef = useRef<number | null>(null);
+
+  const AUTO_CAPTURE_DELAY = 1500; // 1.5 seconds of good position before capture
+  const MAX_CAPTURES = 5;
 
   // Check enrollment status on mount
   useEffect(() => {
@@ -37,7 +61,148 @@ export default function FaceEnrollment() {
 
   const isEnrolled = enrollmentStatus?.is_enrolled || false;
 
-  const [cameraError, setCameraError] = useState('');
+  // Simple face detection using canvas analysis
+  const detectFace = useCallback((): FaceDetectionResult => {
+    if (!videoRef.current || !canvasRef.current) {
+      return { position: 'no_face', message: 'Camera not ready' };
+    }
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { position: 'no_face', message: 'Canvas not ready' };
+
+    // Set canvas size to match video
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+
+    // Draw current frame
+    ctx.drawImage(video, 0, 0);
+
+    // Get image data for analysis
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    // Simple skin tone detection to find face region
+    const skinPixels: { x: number; y: number }[] = [];
+
+    for (let y = 0; y < canvas.height; y += 4) {
+      for (let x = 0; x < canvas.width; x += 4) {
+        const i = (y * canvas.width + x) * 4;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+
+        // Simple skin tone detection (works for various skin tones)
+        if (r > 60 && g > 40 && b > 20 &&
+          r > g && r > b &&
+          Math.abs(r - g) > 15 &&
+          r - b > 15) {
+          skinPixels.push({ x, y });
+        }
+      }
+    }
+
+    if (skinPixels.length < 100) {
+      return { position: 'no_face', message: 'No face detected - look at the camera' };
+    }
+
+    // Calculate bounding box of skin pixels
+    const xs = skinPixels.map(p => p.x);
+    const ys = skinPixels.map(p => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const faceWidth = maxX - minX;
+    const faceHeight = maxY - minY;
+    const faceCenterX = minX + faceWidth / 2;
+    const faceCenterY = minY + faceHeight / 2;
+
+    const canvasCenterX = canvas.width / 2;
+    const canvasCenterY = canvas.height / 2;
+
+    // Calculate ideal face size (should be about 30-50% of frame width)
+    const idealFaceWidth = canvas.width * 0.35;
+    const idealFaceHeight = canvas.height * 0.45;
+
+    const faceBox = { x: minX, y: minY, width: faceWidth, height: faceHeight };
+
+    // Check face size
+    if (faceWidth < idealFaceWidth * 0.6 || faceHeight < idealFaceHeight * 0.6) {
+      return { position: 'too_far', message: 'Move closer to the camera', faceBox };
+    }
+
+    if (faceWidth > idealFaceWidth * 1.5 || faceHeight > idealFaceHeight * 1.5) {
+      return { position: 'too_close', message: 'Move back from the camera', faceBox };
+    }
+
+    // Check face position (center)
+    const xOffset = Math.abs(faceCenterX - canvasCenterX) / canvas.width;
+    const yOffset = Math.abs(faceCenterY - canvasCenterY) / canvas.height;
+
+    if (xOffset > 0.15 || yOffset > 0.15) {
+      const direction = [];
+      if (faceCenterX < canvasCenterX - canvas.width * 0.1) direction.push('right');
+      if (faceCenterX > canvasCenterX + canvas.width * 0.1) direction.push('left');
+      if (faceCenterY < canvasCenterY - canvas.height * 0.1) direction.push('down');
+      if (faceCenterY > canvasCenterY + canvas.height * 0.1) direction.push('up');
+      return {
+        position: 'off_center',
+        message: `Move ${direction.join(' and ')} to center your face`,
+        faceBox
+      };
+    }
+
+    return { position: 'good', message: 'Perfect! Hold still...', faceBox };
+  }, []);
+
+  // Run face detection loop
+  useEffect(() => {
+    if (!isCameraActive) {
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
+        detectionIntervalRef.current = null;
+      }
+      return;
+    }
+
+    detectionIntervalRef.current = window.setInterval(() => {
+      const result = detectFace();
+      setFacePosition(result.position);
+      setPositionMessage(result.message);
+
+      // Handle auto-capture logic
+      if (result.position === 'good' && capturedImages.length < MAX_CAPTURES) {
+        if (!goodPositionStartRef.current) {
+          goodPositionStartRef.current = Date.now();
+          setIsAutoCapturing(true);
+        }
+
+        const elapsed = Date.now() - goodPositionStartRef.current;
+        setAutoCaptureProgress((elapsed / AUTO_CAPTURE_DELAY) * 100);
+
+        if (elapsed >= AUTO_CAPTURE_DELAY) {
+          // Auto-capture
+          captureImage();
+          goodPositionStartRef.current = null;
+          setAutoCaptureProgress(0);
+          setIsAutoCapturing(false);
+        }
+      } else {
+        goodPositionStartRef.current = null;
+        setAutoCaptureProgress(0);
+        setIsAutoCapturing(false);
+      }
+    }, 100);
+
+    return () => {
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
+      }
+    };
+  }, [isCameraActive, detectFace, capturedImages.length]);
 
   const startCamera = async () => {
     try {
@@ -50,6 +215,8 @@ export default function FaceEnrollment() {
       streamRef.current = stream;
       setIsCameraActive(true);
       setCameraError('');
+      setFacePosition('no_face');
+      setPositionMessage('Position your face in the oval');
     } catch {
       setCameraError('Could not access camera. Please check permissions.');
     }
@@ -64,10 +231,13 @@ export default function FaceEnrollment() {
       videoRef.current.srcObject = null;
     }
     setIsCameraActive(false);
+    goodPositionStartRef.current = null;
+    setAutoCaptureProgress(0);
+    setIsAutoCapturing(false);
   };
 
-  const captureImage = () => {
-    if (!videoRef.current || capturedImages.length >= 5) return;
+  const captureImage = useCallback(() => {
+    if (!videoRef.current || capturedImages.length >= MAX_CAPTURES) return;
 
     // Trigger flash effect
     const flashEl = document.querySelector('.capture-flash');
@@ -81,14 +251,17 @@ export default function FaceEnrollment() {
     canvas.height = videoRef.current.videoHeight;
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      // Flip horizontally to match mirror view
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
       ctx.drawImage(videoRef.current, 0, 0);
     }
     const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
     setCapturedImages(prev => [...prev, dataUrl]);
-  };
+
+    // Show brief success feedback
+    setShowSuccessAnimation(true);
+    setTimeout(() => setShowSuccessAnimation(false), 500);
+  }, [capturedImages.length]);
 
   const removeImage = (index: number) => {
     setCapturedImages(prev => prev.filter((_, i) => i !== index));
@@ -100,13 +273,11 @@ export default function FaceEnrollment() {
     clearMessages();
 
     try {
-      // Enroll each captured image
       for (const imageData of capturedImages) {
         await enrollFaceFromCamera(user.id, imageData);
       }
       setCapturedImages([]);
       stopCamera();
-      // Refresh enrollment status
       await checkEnrollmentStatus(user.id);
     } catch (err) {
       console.error('Enrollment failed:', err);
@@ -121,6 +292,27 @@ export default function FaceEnrollment() {
 
     await deleteEnrollment(user.id);
     await checkEnrollmentStatus(user.id);
+  };
+
+  // Get oval color based on face position
+  const getOvalColor = () => {
+    switch (facePosition) {
+      case 'good': return 'border-green-500 shadow-green-500/50';
+      case 'off_center': return 'border-yellow-500 shadow-yellow-500/50';
+      case 'too_far':
+      case 'too_close': return 'border-orange-500 shadow-orange-500/50';
+      default: return 'border-red-500 shadow-red-500/50';
+    }
+  };
+
+  const getStatusBgColor = () => {
+    switch (facePosition) {
+      case 'good': return 'bg-green-500/90';
+      case 'off_center': return 'bg-yellow-500/90';
+      case 'too_far':
+      case 'too_close': return 'bg-orange-500/90';
+      default: return 'bg-red-500/90';
+    }
   };
 
   // Only students and admins can access
@@ -213,38 +405,88 @@ export default function FaceEnrollment() {
         </CardContent>
       </Card>
 
-      {/* Camera Capture */}
+      {/* Camera Capture - iPhone Style */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5" />
-            Camera Capture
+            Face Capture
           </CardTitle>
-          <CardDescription>Capture face images directly from your camera</CardDescription>
+          <CardDescription>
+            Position your face in the oval - images capture automatically when aligned
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Progress indicator */}
+          {isCameraActive && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="font-medium">Capture Progress</span>
+                <span className="text-muted-foreground">{capturedImages.length}/{MAX_CAPTURES} images</span>
+              </div>
+              <Progress value={(capturedImages.length / MAX_CAPTURES) * 100} className="h-2" />
+            </div>
+          )}
+
           {/* Camera Preview */}
-          <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
+          <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
+            {/* Hidden canvas for face detection */}
+            <canvas ref={canvasRef} className="hidden" />
+
             {isCameraActive ? (
               <>
-                <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover mirror" />
-                {/* Face guide overlay */}
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover mirror" />
+
+                {/* Face guide overlay with dynamic color */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="relative w-48 h-64 border-2 border-primary/70 rounded-[50%] shadow-[0_0_0_9999px_rgba(0,0,0,0.3)]">
-                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-background/90 px-3 py-1 rounded text-xs font-medium">
-                      Position your face here
-                    </div>
+                  <div className={`relative w-48 h-64 border-4 rounded-[50%] transition-all duration-300 shadow-lg ${getOvalColor()}`}>
+                    {/* Auto-capture progress ring */}
+                    {isAutoCapturing && (
+                      <svg className="absolute -inset-2 w-[calc(100%+16px)] h-[calc(100%+16px)]" viewBox="0 0 100 130">
+                        <ellipse
+                          cx="50"
+                          cy="65"
+                          rx="48"
+                          ry="62"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeDasharray={`${autoCaptureProgress * 3.5} 350`}
+                          className="text-green-400 transition-all"
+                          transform="rotate(-90 50 65)"
+                        />
+                      </svg>
+                    )}
+
+                    {/* Success checkmark animation */}
+                    {showSuccessAnimation && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-green-500/30 rounded-[50%] animate-pulse">
+                        <CheckCircle className="h-16 w-16 text-green-500" />
+                      </div>
+                    )}
                   </div>
+
+                  {/* Dark overlay outside oval */}
+                  <div className="absolute inset-0 bg-black/40" style={{
+                    maskImage: 'radial-gradient(ellipse 96px 128px at center, transparent 100%, black 100%)',
+                    WebkitMaskImage: 'radial-gradient(ellipse 96px 128px at center, transparent 100%, black 100%)',
+                  }} />
                 </div>
+
+                {/* Position feedback message */}
+                <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full text-white text-sm font-medium transition-colors ${getStatusBgColor()}`}>
+                  {positionMessage}
+                </div>
+
                 {/* Capture flash effect */}
                 <div className="absolute inset-0 bg-white opacity-0 transition-opacity duration-100 capture-flash pointer-events-none" />
               </>
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <Camera className="h-12 w-12 text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">Camera not active</p>
-                <Button className="mt-4" onClick={startCamera}>
-                  <Video className="h-4 w-4 mr-2" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
+                <Camera className="h-16 w-16 text-muted-foreground mb-4" />
+                <p className="text-muted-foreground mb-4">Camera not active</p>
+                <Button size="lg" onClick={startCamera}>
+                  <Video className="h-5 w-5 mr-2" />
                   Start Camera
                 </Button>
               </div>
@@ -254,17 +496,23 @@ export default function FaceEnrollment() {
           {/* Captured Images */}
           {capturedImages.length > 0 && (
             <div className="space-y-2">
-              <p className="text-sm font-medium">Captured: {capturedImages.length}/5 images</p>
-              <div className="flex gap-2">
+              <p className="text-sm font-medium flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-green-500" />
+                Captured Images
+              </p>
+              <div className="flex gap-2 flex-wrap">
                 {capturedImages.map((img, i) => (
-                  <div key={i} className="relative h-16 w-16 rounded-lg overflow-hidden border">
+                  <div key={i} className="relative h-20 w-20 rounded-lg overflow-hidden border-2 border-green-500/50 shadow-sm">
                     <img src={img} alt={`Capture ${i + 1}`} className="w-full h-full object-cover" />
                     <button
                       onClick={() => removeImage(i)}
-                      className="absolute top-0 right-0 p-0.5 bg-destructive text-white rounded-bl"
+                      className="absolute top-0 right-0 p-1 bg-destructive text-white rounded-bl hover:bg-destructive/90"
                     >
                       <X className="h-3 w-3" />
                     </button>
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs text-center py-0.5">
+                      #{i + 1}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -275,9 +523,13 @@ export default function FaceEnrollment() {
           <div className="flex flex-wrap gap-2">
             {isCameraActive && (
               <>
-                <Button onClick={captureImage} disabled={capturedImages.length >= 5}>
+                <Button
+                  variant="outline"
+                  onClick={captureImage}
+                  disabled={capturedImages.length >= MAX_CAPTURES}
+                >
                   <Camera className="h-4 w-4 mr-2" />
-                  Capture ({capturedImages.length}/5)
+                  Manual Capture
                 </Button>
                 <Button variant="outline" onClick={stopCamera}>
                   Stop Camera
@@ -285,9 +537,14 @@ export default function FaceEnrollment() {
               </>
             )}
             {capturedImages.length > 0 && (
-              <Button className="ml-auto" onClick={submitEnrollment} disabled={isSubmitting || enrollmentLoading}>
+              <Button
+                className="ml-auto"
+                onClick={submitEnrollment}
+                disabled={isSubmitting || enrollmentLoading}
+              >
                 {(isSubmitting || enrollmentLoading) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Submit {capturedImages.length} Image(s)
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Complete Enrollment ({capturedImages.length} images)
               </Button>
             )}
           </div>
@@ -295,7 +552,7 @@ export default function FaceEnrollment() {
       </Card>
 
       {/* Tips */}
-      <Card className="bg-blue-50/50 border-blue-200">
+      <Card className="bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
         <CardHeader className="pb-2">
           <CardTitle className="text-lg flex items-center gap-2">
             <Lightbulb className="h-5 w-5 text-blue-600" />
@@ -305,20 +562,20 @@ export default function FaceEnrollment() {
         <CardContent>
           <ul className="space-y-2 text-sm">
             <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5" />
+              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
               <span>Ensure good, even lighting on your face</span>
             </li>
             <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5" />
-              <span>Look directly at the camera</span>
+              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+              <span>Look directly at the camera and center your face in the oval</span>
             </li>
             <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5" />
-              <span>Remove glasses if possible</span>
+              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+              <span>Images capture automatically when your face is properly positioned</span>
             </li>
             <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5" />
-              <span>Capture from slightly different angles (3-5 images recommended)</span>
+              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+              <span>Capture 3-5 images from slightly different angles for best accuracy</span>
             </li>
           </ul>
         </CardContent>

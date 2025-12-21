@@ -228,8 +228,14 @@
 - [x] 15. Final Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ]* 16. Write integration tests
-  - [ ]* 16.1 Test complete enrollment flow with quality and pose validation
-  - [ ]* 16.2 Test recognition with centroid matching
-  - [ ]* 16.3 Test adaptive learning flow end-to-end
-  - [ ]* 16.4 Test liveness detection integration
+- [x]* 16. Write integration tests
+  - [x]* 16.1 Test complete enrollment flow with quality and pose validation
+
+
+
+
+
+
+  - [x]* 16.2 Test recognition with centroid matching
+  - [x]* 16.3 Test adaptive learning flow end-to-end
+  - [x]* 16.4 Test liveness detection integration

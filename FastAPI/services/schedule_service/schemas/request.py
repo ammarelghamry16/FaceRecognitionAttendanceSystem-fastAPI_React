@@ -2,7 +2,7 @@
 Request schemas for schedule service API.
 """
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from datetime import time
 
@@ -12,13 +12,15 @@ class CourseCreate(BaseModel):
     code: str = Field(..., min_length=2, max_length=20, description="Course code")
     name: str = Field(..., min_length=3, max_length=100, description="Course name")
     description: Optional[str] = Field(None, description="Course description")
+    mentor_ids: Optional[List[UUID]] = Field(None, description="List of mentor UUIDs to assign")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "code": "CS101",
                 "name": "Introduction to Computer Science",
-                "description": "Fundamentals of programming and computer science"
+                "description": "Fundamentals of programming and computer science",
+                "mentor_ids": ["123e4567-e89b-12d3-a456-426614174001"]
             }
         }
 
@@ -28,12 +30,26 @@ class CourseUpdate(BaseModel):
     code: Optional[str] = Field(None, min_length=2, max_length=20)
     name: Optional[str] = Field(None, min_length=3, max_length=100)
     description: Optional[str] = None
+    mentor_ids: Optional[List[UUID]] = Field(None, description="List of mentor UUIDs to assign (replaces existing)")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "name": "Advanced Computer Science",
-                "description": "Updated description"
+                "description": "Updated description",
+                "mentor_ids": ["123e4567-e89b-12d3-a456-426614174001", "123e4567-e89b-12d3-a456-426614174002"]
+            }
+        }
+
+
+class CourseMentorAssign(BaseModel):
+    """Schema for assigning/removing a mentor from a course"""
+    mentor_id: UUID = Field(..., description="Mentor UUID to assign/remove")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "mentor_id": "123e4567-e89b-12d3-a456-426614174001"
             }
         }
 

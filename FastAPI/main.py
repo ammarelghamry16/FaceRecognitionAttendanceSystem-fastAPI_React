@@ -2,7 +2,9 @@
 Face Recognition Attendance System - Main Application
 Modular Monolith Architecture
 """
+import asyncio
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,13 +17,44 @@ from services.notification_service.api.routes import router as notification_rout
 from services.notification_service.api.websocket import websocket_router as notification_ws_router
 from services.stats_service.api.routes import router as stats_router
 
+# Import background tasks
+from services.attendance_service.tasks.session_tasks import session_cleanup_loop
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan manager.
+    Handles startup and shutdown events.
+    """
+    # Startup: Start background tasks
+    cleanup_task = asyncio.create_task(session_cleanup_loop(interval_seconds=60))
+    
+    yield
+    
+    # Shutdown: Cancel background tasks
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    
+    # Shutdown AI adapter (cleanup thread pool)
+    try:
+        from services.ai_service.adapters.insightface_adapter import InsightFaceAdapter
+        InsightFaceAdapter.shutdown()
+    except Exception:
+        pass
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Face Recognition Attendance System",
     description="Automated attendance management using AI-powered face recognition",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # CORS Configuration

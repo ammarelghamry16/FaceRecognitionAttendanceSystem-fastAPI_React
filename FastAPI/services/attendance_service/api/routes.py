@@ -224,3 +224,41 @@ def get_student_stats(
     
     service = AttendanceService(db)
     return service.get_student_stats(student_id)
+
+
+@router.get("/sessions/{session_id}/recognition-window")
+def get_recognition_window_status(
+    session_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db_session)
+):
+    """
+    Get the auto-recognition window status for a session.
+    
+    Returns:
+    - is_active: Whether auto-recognition is currently active
+    - elapsed_minutes: Minutes since session started
+    - window_minutes: Total window duration
+    - remaining_minutes: Minutes remaining in window (0 if expired)
+    - mode: "auto" or "manual_only"
+    """
+    try:
+        service = AttendanceService(db)
+        return service.get_recognition_window_status(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/sessions/active")
+def get_all_active_sessions(
+    current_user: User = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db_session)
+):
+    """
+    Get all currently active sessions (admin only).
+    Used for admin multi-session spectating view.
+    """
+    from ..repositories.session_repository import SessionRepository
+    session_repo = SessionRepository(db)
+    sessions = session_repo.find_active_sessions()
+    return [AttendanceSessionResponse.model_validate(s) for s in sessions]

@@ -43,3 +43,31 @@ yarn-error.log*
 
 # Local Env
 .env.local
+
+# ===========================
+# 4. TESTING (All frameworks)
+# ===========================
+# Test folders
+Others/
+
+
+# Pytest
+.pytest_cache/
+.hypothesis/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+*.py,cover
+
+# Playwright / E2E
+playwright-report/
+test-results/
+playwright/.cache/
+
+# Jest / Vitest
+coverage/
+
+# General test artifacts
+*.log
+.nyc_output/

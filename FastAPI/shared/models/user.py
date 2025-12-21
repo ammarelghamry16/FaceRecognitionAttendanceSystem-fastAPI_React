@@ -19,7 +19,7 @@ class User(Base, TimestampMixin):
     full_name = Column(String(100), nullable=False)
     role = Column(String(20), nullable=False, default='student')  # student, mentor, admin
     student_id = Column(String(10), unique=True, nullable=True)  # Format: YYYY/NNNNN
-    enrollment_year = Column(Integer, nullable=True)  # Year student was enrolled
+    group = Column(String(50), nullable=True)  # Student group (e.g., "Group A", "CS-101")
     is_active = Column(Boolean, default=True, nullable=False)
 
     def __repr__(self):

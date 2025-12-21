@@ -1,17 +1,22 @@
 /**
- * Courses Page - CRUD for courses
+ * Courses Page - CRUD for courses with mentor assignment
  */
 import { useState, useEffect } from 'react';
 import { courseApi } from '@/services/scheduleService';
-import type { Course, CourseCreate } from '@/services/scheduleService';
+import { authApi } from '@/services/authService';
+import type { Course, CourseCreate, MentorInfo } from '@/services/scheduleService';
+import type { User } from '@/services/authService';
+import { useToast } from '@/hooks/useToast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Users, X, Check } from 'lucide-react';
 
 export default function Courses() {
+  const { toast } = useToast();
   const [courses, setCourses] = useState<Course[]>([]);
+  const [mentors, setMentors] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -20,16 +25,21 @@ export default function Courses() {
     code: '',
     name: '',
     description: '',
+    mentor_ids: [],
   });
 
-  // Fetch courses
-  const fetchCourses = async () => {
+  // Fetch courses and mentors
+  const fetchData = async () => {
     try {
       setIsLoading(true);
-      const response = await courseApi.getAll();
-      setCourses(response.data);
+      const [coursesRes, mentorsRes] = await Promise.all([
+        courseApi.getAll(),
+        authApi.getMentors(),
+      ]);
+      setCourses(coursesRes.data);
+      setMentors(mentorsRes);
     } catch (err) {
-      setError('Failed to load courses');
+      setError('Failed to load data');
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -37,7 +47,7 @@ export default function Courses() {
   };
 
   useEffect(() => {
-    fetchCourses();
+    fetchData();
   }, []);
 
   // Handle form submit
@@ -46,15 +56,26 @@ export default function Courses() {
     try {
       if (editingCourse) {
         await courseApi.update(editingCourse.id, formData);
+        toast({
+          title: 'Course Updated',
+          description: `${formData.name} has been updated successfully.`,
+        });
       } else {
         await courseApi.create(formData);
+        toast({
+          title: 'Course Created',
+          description: `${formData.name} has been created successfully.`,
+        });
       }
-      setShowForm(false);
-      setEditingCourse(null);
-      setFormData({ code: '', name: '', description: '' });
-      fetchCourses();
+      handleCancel();
+      fetchData();
     } catch (err) {
       setError('Failed to save course');
+      toast({
+        title: 'Error',
+        description: 'Failed to save course. Please try again.',
+        variant: 'destructive',
+      });
       console.error(err);
     }
   };
@@ -66,18 +87,28 @@ export default function Courses() {
       code: course.code,
       name: course.name,
       description: course.description || '',
+      mentor_ids: course.mentor_ids || [],
     });
     setShowForm(true);
   };
 
   // Handle delete
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this course?')) return;
+    if (!confirm('Are you sure you want to delete this course? This will also delete all associated classes.')) return;
     try {
       await courseApi.delete(id);
-      fetchCourses();
+      toast({
+        title: 'Course Deleted',
+        description: 'The course has been deleted successfully.',
+      });
+      fetchData();
     } catch (err) {
       setError('Failed to delete course');
+      toast({
+        title: 'Error',
+        description: 'Failed to delete course. Please try again.',
+        variant: 'destructive',
+      });
       console.error(err);
     }
   };
@@ -86,7 +117,19 @@ export default function Courses() {
   const handleCancel = () => {
     setShowForm(false);
     setEditingCourse(null);
-    setFormData({ code: '', name: '', description: '' });
+    setFormData({ code: '', name: '', description: '', mentor_ids: [] });
+  };
+
+  // Toggle mentor selection
+  const toggleMentor = (mentorId: string) => {
+    setFormData(prev => {
+      const currentIds = prev.mentor_ids || [];
+      if (currentIds.includes(mentorId)) {
+        return { ...prev, mentor_ids: currentIds.filter(id => id !== mentorId) };
+      } else {
+        return { ...prev, mentor_ids: [...currentIds, mentorId] };
+      }
+    });
   };
 
   if (isLoading) {
@@ -102,7 +145,7 @@ export default function Courses() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Courses</h1>
-          <p className="text-muted-foreground">Manage courses in the system</p>
+          <p className="text-muted-foreground">Manage courses and assign mentors</p>
         </div>
         <Button onClick={() => setShowForm(true)}>
           <Plus className="h-4 w-4 mr-2" />
@@ -126,7 +169,7 @@ export default function Courses() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="code">Course Code</Label>
+                  <Label htmlFor="code">Course Code *</Label>
                   <Input
                     id="code"
                     value={formData.code}
@@ -136,7 +179,7 @@ export default function Courses() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="name">Course Name</Label>
+                  <Label htmlFor="name">Course Name *</Label>
                   <Input
                     id="name"
                     value={formData.name}
@@ -155,6 +198,52 @@ export default function Courses() {
                   placeholder="Course description (optional)"
                 />
               </div>
+
+              {/* Mentor Selection */}
+              <div className="space-y-2">
+                <Label>Assigned Mentors</Label>
+                <p className="text-sm text-muted-foreground">
+                  Select mentors who can teach this course
+                </p>
+                {mentors.length === 0 ? (
+                  <p className="text-sm text-yellow-600 bg-yellow-50 dark:bg-yellow-950 p-3 rounded-md">
+                    No mentors available. Create mentor accounts first.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {mentors.map((mentor) => {
+                      const isSelected = formData.mentor_ids?.includes(mentor.id);
+                      return (
+                        <button
+                          key={mentor.id}
+                          type="button"
+                          onClick={() => toggleMentor(mentor.id)}
+                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${isSelected
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-background border-input hover:bg-accent'
+                            }`}
+                        >
+                          {isSelected ? (
+                            <Check className="h-4 w-4" />
+                          ) : (
+                            <Users className="h-4 w-4" />
+                          )}
+                          <span>{mentor.full_name}</span>
+                          {isSelected && (
+                            <X className="h-3 w-3 ml-1" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {formData.mentor_ids && formData.mentor_ids.length > 0 && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    {formData.mentor_ids.length} mentor(s) selected
+                  </p>
+                )}
+              </div>
+
               <div className="flex gap-2">
                 <Button type="submit">
                   {editingCourse ? 'Update' : 'Create'}
@@ -204,9 +293,33 @@ export default function Courses() {
                 </div>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground mb-3">
                   {course.description || 'No description'}
                 </p>
+
+                {/* Mentors */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Users className="h-4 w-4" />
+                    <span>Mentors:</span>
+                  </div>
+                  {course.mentors && course.mentors.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {course.mentors.map((mentor: MentorInfo) => (
+                        <span
+                          key={mentor.id}
+                          className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
+                        >
+                          {mentor.full_name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">
+                      No mentors assigned
+                    </p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))

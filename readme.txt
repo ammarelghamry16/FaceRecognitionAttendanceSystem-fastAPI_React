@@ -48,7 +48,20 @@ okay these are the things i notivced that needs to be adjusted
 
 5- when displaying notification make it dismissable instead of always displaying it the period of time then disappears also add sent since when like the ones on the iphone notification where it tills you this noti. was from x time 
 
+6- when i started the session from the admin and signed out the session stopped, i want it to continue till either mentor of this class end it or the admin end it and notifies everyone in the class who ended it or it keeps going till its allowed time ends which is one and half or 2 hours as it takes in the schedule.
+
+7- i want the session of the class to be with camera and live syncing and everything as implemented till 20 min of its starting time then mentor can enroll manually. This simulates as time allowed to join the lecture is 20 min then there will be no enrollment and it will be wasted resources on camera and attendance system to be active we can make light version of attendance where it activates after 20 mins for status and spectating purposes. note: after 20 mins mentor can still enroll students manually.
+
+8- this will contradict a prevois request but i want to disable the featue of admin starting session or not the only one who can start and end the session is the mentor as a privacy for a doctor in his lecture to start whenever and end whenever he likes not the admin ruining his work by mistake but the admin can only spectate.
+
+9- check the compatability of the system to work in parallel sessions as lectures should be working concurrently not sequentially.
+
+10- admin attendance tab should be able to spectate many active classes at the same time as lectures will be working together concurrently.
+
+11- there is something wrong with the face enrollment where i don't see my self in the camera so that i be able to position my self as required and didn't get results check whether these photos are compatable or not, but i want to do something, i want the face enrollment to be as face enrollment on iphone where the camera opens and there is guides to how to position yourself in the camera and photos are taken automatically as much as needed (the process of iphone face enrollment is smooth and the detection is super accurate)
+
+12- when signing out check are you sure instead of signing out directly
 
 
 
-
+wy4ECQMIX6xcAFQzR3XgChZBkiPduNgETW89M5Qe06GqV92ztIy5J1iQqD14o_Ea0oIBsok2XL8oZKAvSyjCTT1XgQQ1Ns_HOFORYmBQzYLPpQa1qdhOydxodCaS6EsPx-1hO8T71AfyczjUGnV4Utrh--UtDTQwQ7ToqKmU0yJpQHiFesV8tbsFBVW8Qk6uk1k9-KKPSwGQ0yEBnLk2UPn41FNd-9DKogD4uazAPpFzZhvV

@@ -20,6 +20,7 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=100)
     role: str = Field(default="student")
     student_id: Optional[str] = Field(default=None, max_length=50)
+    group: Optional[str] = Field(default=None, max_length=50)
     
     @field_validator('password')
     @classmethod
@@ -81,4 +82,5 @@ class UpdateUserRequest(BaseModel):
     """Update user request schema."""
     full_name: Optional[str] = Field(default=None, min_length=2, max_length=100)
     student_id: Optional[str] = Field(default=None, max_length=50)
+    group: Optional[str] = Field(default=None, max_length=50)
     is_active: Optional[bool] = None

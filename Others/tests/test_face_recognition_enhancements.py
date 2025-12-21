@@ -17,14 +17,10 @@ parent_dir = str(Path(__file__).parent.parent)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-# Mock sqlalchemy Session for testing without database
-class MockSession:
-    pass
-
-# Inject mock into sys.modules before importing modules that need it
-sys.modules['sqlalchemy'] = type(sys)('sqlalchemy')
-sys.modules['sqlalchemy.orm'] = type(sys)('sqlalchemy.orm')
-sys.modules['sqlalchemy.orm'].Session = MockSession
+# Add FastAPI directory to path for imports
+fastapi_dir = str(Path(__file__).parent.parent.parent / "FastAPI")
+if fastapi_dir not in sys.path:
+    sys.path.insert(0, fastapi_dir)
 
 # Direct file imports to avoid FastAPI dependency chain
 def import_module_from_file(module_name: str, file_path: str):
@@ -36,7 +32,7 @@ def import_module_from_file(module_name: str, file_path: str):
     return module
 
 # Import quality_analyzer directly
-quality_analyzer_path = Path(__file__).parent.parent / "services" / "ai_service" / "services" / "quality_analyzer.py"
+quality_analyzer_path = Path(__file__).parent.parent.parent / "FastAPI" / "services" / "ai_service" / "services" / "quality_analyzer.py"
 quality_module = import_module_from_file("quality_analyzer", str(quality_analyzer_path))
 QualityAnalyzer = quality_module.QualityAnalyzer
 QualityMetrics = quality_module.QualityMetrics
@@ -300,7 +296,7 @@ class TestQualityRejectionProperties:
 
 
 # Import pose_classifier directly
-pose_classifier_path = Path(__file__).parent.parent / "services" / "ai_service" / "services" / "pose_classifier.py"
+pose_classifier_path = Path(__file__).parent.parent.parent / "FastAPI" / "services" / "ai_service" / "services" / "pose_classifier.py"
 pose_module = import_module_from_file("pose_classifier", str(pose_classifier_path))
 PoseClassifier = pose_module.PoseClassifier
 PoseCategory = pose_module.PoseCategory
@@ -431,7 +427,7 @@ class TestPoseClassifierUnit:
 
 
 # Import centroid_manager directly
-centroid_manager_path = Path(__file__).parent.parent / "services" / "ai_service" / "services" / "centroid_manager.py"
+centroid_manager_path = Path(__file__).parent.parent.parent / "FastAPI" / "services" / "ai_service" / "services" / "centroid_manager.py"
 centroid_module = import_module_from_file("centroid_manager", str(centroid_manager_path))
 CentroidManager = centroid_module.CentroidManager
 
@@ -520,7 +516,7 @@ class TestCentroidManagerProperties:
 
 
 # Import duplicate_checker directly
-duplicate_checker_path = Path(__file__).parent.parent / "services" / "ai_service" / "services" / "duplicate_checker.py"
+duplicate_checker_path = Path(__file__).parent.parent.parent / "FastAPI" / "services" / "ai_service" / "services" / "duplicate_checker.py"
 duplicate_module = import_module_from_file("duplicate_checker", str(duplicate_checker_path))
 DuplicateChecker = duplicate_module.DuplicateChecker
 
@@ -813,12 +809,12 @@ class TestReEnrollmentFlagProperties:
 
 
 # Import adaptive_learner directly
-adaptive_learner_path = Path(__file__).parent.parent / "services" / "ai_service" / "services" / "adaptive_learner.py"
+adaptive_learner_path = Path(__file__).parent.parent.parent / "FastAPI" / "services" / "ai_service" / "services" / "adaptive_learner.py"
 adaptive_module = import_module_from_file("adaptive_learner", str(adaptive_learner_path))
 AdaptiveLearner = adaptive_module.AdaptiveLearner
 
 # Import liveness_detector directly
-liveness_detector_path = Path(__file__).parent.parent / "services" / "ai_service" / "services" / "liveness_detector.py"
+liveness_detector_path = Path(__file__).parent.parent.parent / "FastAPI" / "services" / "ai_service" / "services" / "liveness_detector.py"
 liveness_module = import_module_from_file("liveness_detector", str(liveness_detector_path))
 LivenessDetector = liveness_module.LivenessDetector
 

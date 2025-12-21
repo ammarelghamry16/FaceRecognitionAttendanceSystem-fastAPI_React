@@ -91,9 +91,19 @@ class AttendanceService:
     def end_session(
         self,
         session_id: UUID,
-        ended_by: Optional[UUID] = None
+        ended_by: Optional[UUID] = None,
+        auto_ended: bool = False,
+        ended_reason: Optional[str] = None
     ) -> Optional[AttendanceSession]:
-        """End an active attendance session."""
+        """
+        End an active attendance session.
+        
+        Args:
+            session_id: ID of the session to end
+            ended_by: ID of the user who ended the session (None for auto-end)
+            auto_ended: Whether the session was auto-ended due to duration
+            ended_reason: Reason for ending the session
+        """
         session = self.session_repo.find_by_id(session_id)
         if not session:
             return None
@@ -102,10 +112,77 @@ class AttendanceService:
         if context.can_deactivate():
             context.deactivate()
             session.ended_by = ended_by
+            
+            # Set auto-end fields if applicable
+            if hasattr(session, 'auto_ended'):
+                session.auto_ended = auto_ended
+            if hasattr(session, 'ended_reason') and ended_reason:
+                session.ended_reason = ended_reason
+            
             self.db.flush()
             self.db.refresh(session)
+            
+            # Notify enrolled students that session has ended
+            self._notify_session_ended(session, ended_by, auto_ended)
         
         return session
+    
+    def _notify_session_ended(
+        self,
+        session: AttendanceSession,
+        ended_by: Optional[UUID],
+        auto_ended: bool
+    ) -> None:
+        """
+        Notify enrolled students that attendance session has ended.
+        
+        Args:
+            session: The session that ended
+            ended_by: ID of the user who ended the session
+            auto_ended: Whether the session was auto-ended
+        """
+        try:
+            from services.notification_service.services.notification_service import NotificationService
+            from services.schedule_service.repositories.enrollment_repository import EnrollmentRepository
+            from services.auth_service.repositories.user_repository import UserRepository
+            
+            notification_service = NotificationService(self.db)
+            enrollment_repo = EnrollmentRepository(self.db)
+            
+            # Get enrolled students for this class
+            enrollments = enrollment_repo.find_by_class(session.class_id)
+            
+            # Determine who ended the session
+            if auto_ended:
+                ended_by_name = "auto (duration expired)"
+            elif ended_by:
+                try:
+                    user_repo = UserRepository(self.db)
+                    user = user_repo.find_by_id(ended_by)
+                    ended_by_name = user.full_name if user else "the mentor"
+                except Exception:
+                    ended_by_name = "the mentor"
+            else:
+                ended_by_name = "the mentor"
+            
+            for enrollment in enrollments:
+                notification_service.create_notification(
+                    user_id=enrollment.student_id,
+                    notification_type="class_ended",
+                    title="Attendance Session Ended",
+                    message=f"The attendance session has ended. Ended by: {ended_by_name}",
+                    data={
+                        "session_id": str(session.id),
+                        "class_id": str(session.class_id),
+                        "ended_by": str(ended_by) if ended_by else None,
+                        "ended_by_name": ended_by_name,
+                        "auto_ended": auto_ended
+                    }
+                )
+            
+            logger.info(f"Session end notifications sent to {len(enrollments)} students")
+        except Exception as e:
+            logger.error(f"Failed to send session end notifications: {e}")
     
     def cancel_session(self, session_id: UUID) -> Optional[AttendanceSession]:
         """Cancel an attendance session."""
@@ -267,7 +344,28 @@ class AttendanceService:
         student_id: UUID,
         confidence: float
     ) -> AttendanceRecord:
-        """Process face recognition result from AI service."""
+        """
+        Process face recognition result from AI service.
+        
+        Face recognition is only allowed within the auto-recognition window.
+        After the window expires, only manual marking is allowed.
+        
+        Raises:
+            ValueError: If session not found or recognition window has expired
+        """
+        session = self.session_repo.find_by_id(session_id)
+        if not session:
+            raise ValueError("Session not found")
+        
+        # Check if auto-recognition is still active
+        if not session.is_auto_recognition_active:
+            raise ValueError(
+                f"Auto-recognition window has expired. "
+                f"Session started {session.get_duration_minutes()} minutes ago, "
+                f"window is {session.auto_recognition_window_minutes} minutes. "
+                f"Please use manual attendance marking."
+            )
+        
         return self.mark_attendance(
             session_id=session_id,
             student_id=student_id,
@@ -306,4 +404,33 @@ class AttendanceService:
             "late": late,
             "absent": absent,
             "attendance_rate": (present + late) / total if total > 0 else 0.0
+        }
+    
+    def get_recognition_window_status(self, session_id: UUID) -> Dict[str, Any]:
+        """
+        Get the auto-recognition window status for a session.
+        
+        Returns:
+            Dict with:
+            - is_active: Whether auto-recognition is currently active
+            - elapsed_minutes: Minutes since session started
+            - window_minutes: Total window duration
+            - remaining_minutes: Minutes remaining in window (0 if expired)
+            - mode: "auto" or "manual_only"
+        """
+        session = self.session_repo.find_by_id(session_id)
+        if not session:
+            raise ValueError("Session not found")
+        
+        elapsed = session.get_duration_minutes()
+        window = session.auto_recognition_window_minutes
+        remaining = max(0, window - elapsed)
+        is_active = session.is_auto_recognition_active
+        
+        return {
+            "is_active": is_active,
+            "elapsed_minutes": elapsed,
+            "window_minutes": window,
+            "remaining_minutes": remaining,
+            "mode": "auto" if is_active else "manual_only"
         }
