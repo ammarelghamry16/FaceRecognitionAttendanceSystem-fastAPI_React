@@ -36,16 +36,16 @@ interface PoseGuide {
   imageCount: number;
 }
 
-// Configuration - stricter for better accuracy
+// Configuration - relaxed for better usability while maintaining accuracy
 const CONFIG = {
   IMAGES_PER_POSE: 2,
   MIN_QUALITY_HOLD_MS: 800, // Must hold good quality for 800ms before capture
-  MIN_FACE_SIZE_PERCENT: 15, // Face should be at least 15% of frame for good accuracy
-  IDEAL_FACE_SIZE_PERCENT: 25, // Ideal face size
-  MAX_FACE_SIZE_PERCENT: 60, // Don't be too close
-  MIN_BRIGHTNESS: 50,
-  MAX_BRIGHTNESS: 220,
-  CENTER_TOLERANCE: 0.25, // Face should be within 25% of center
+  MIN_FACE_SIZE_PERCENT: 5, // Lowered from 15% - allows faces at normal webcam distance
+  IDEAL_FACE_SIZE_PERCENT: 15, // Lowered from 25% - ideal but not required
+  MAX_FACE_SIZE_PERCENT: 95, // Allow larger faces, skin detection can be generous
+  MIN_BRIGHTNESS: 40, // Lowered from 50 - more tolerant of dim lighting
+  MAX_BRIGHTNESS: 230, // Raised from 220 - more tolerant of bright lighting
+  CENTER_TOLERANCE: 0.35, // Increased from 0.25 - more tolerant of off-center faces
   TOTAL_POSES: 5,
 };
 
@@ -584,10 +584,10 @@ export default function FaceEnrollment() {
                     <div
                       key={pose.id}
                       className={`flex items-center justify-center w-10 h-10 rounded-full transition-all ${pose.captured
-                          ? 'bg-green-500 text-white'
-                          : idx === currentPoseIndex
-                            ? 'bg-white text-black scale-110 shadow-lg'
-                            : 'bg-white/30 text-white/70'
+                        ? 'bg-green-500 text-white'
+                        : idx === currentPoseIndex
+                          ? 'bg-white text-black scale-110 shadow-lg'
+                          : 'bg-white/30 text-white/70'
                         }`}
                       title={pose.name}
                     >

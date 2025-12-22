@@ -108,10 +108,13 @@ class RecognitionService:
         Returns:
             EnrollmentResult with status, quality score, and pose category
         """
+        logger.info(f"🔍 ENROLL: Starting enrollment for user {user_id}, image_size={len(image_bytes)} bytes")
+        
         try:
             # Check enrollment limit
             can_enroll, limit_reason = self.duplicate_checker.can_enroll_more(user_id)
             if not can_enroll:
+                logger.warning(f"🔍 ENROLL: Enrollment limit reached - {limit_reason}")
                 return EnrollmentResult(
                     success=False,
                     message=limit_reason
@@ -120,15 +123,20 @@ class RecognitionService:
             # Convert bytes to numpy array
             image = self._bytes_to_image(image_bytes)
             if image is None:
+                logger.error("🔍 ENROLL: Failed to decode image")
                 return EnrollmentResult(
                     success=False,
                     message="Failed to decode image"
                 )
             
+            logger.info(f"🔍 ENROLL: Image decoded, shape={image.shape}")
+            
             # Detect face and get embedding
             result = self.adapter.detect_faces(image)
+            logger.info(f"🔍 ENROLL: Face detection result - face_count={result.face_count}, confidence={result.confidence_scores if result.confidence_scores else 'N/A'}")
             
             if result.face_count == 0:
+                logger.warning("🔍 ENROLL: No face detected in image")
                 return EnrollmentResult(
                     success=False,
                     message="No face detected in image"
@@ -139,18 +147,22 @@ class RecognitionService:
             # Convert from (top, right, bottom, left) to (x, y, w, h)
             top, right, bottom, left = face_bbox
             face_bbox_xywh = (left, top, right - left, bottom - top)
+            logger.info(f"🔍 ENROLL: Face bbox (x,y,w,h)={face_bbox_xywh}")
             
             # Analyze quality
             quality_metrics = self.quality_analyzer.analyze(
                 image, face_bbox_xywh, result.confidence_scores[0]
             )
+            logger.info(f"🔍 ENROLL: Quality metrics - overall={quality_metrics.overall_score:.2f}, sharpness={quality_metrics.sharpness:.2f}, lighting={quality_metrics.lighting_uniformity:.2f}, face_size_ratio={quality_metrics.face_size_ratio:.4f} ({quality_metrics.face_size_ratio*100:.1f}%), confidence={quality_metrics.detection_confidence:.2f}")
             
             # Validate quality (unless skipped)
             if not skip_quality_check:
                 is_acceptable, rejection_reason = self.quality_analyzer.is_acceptable(
                     quality_metrics, face_count=result.face_count
                 )
+                logger.info(f"🔍 ENROLL: Quality check - acceptable={is_acceptable}, reason={rejection_reason}")
                 if not is_acceptable:
+                    logger.warning(f"🔍 ENROLL: Quality rejected - {rejection_reason}")
                     return EnrollmentResult(
                         success=False,
                         message=rejection_reason,
@@ -159,12 +171,15 @@ class RecognitionService:
             
             # Get embedding
             embedding = result.embeddings[0]
+            logger.info(f"🔍 ENROLL: Embedding extracted, shape={embedding.shape}")
             
             # Check for duplicates (unless skipped)
             if not skip_duplicate_check:
                 existing_embeddings = self.duplicate_checker.get_existing_embeddings(user_id)
                 is_duplicate, dup_reason = self.duplicate_checker.is_duplicate(embedding, existing_embeddings)
+                logger.info(f"🔍 ENROLL: Duplicate check - is_duplicate={is_duplicate}, reason={dup_reason}")
                 if is_duplicate:
+                    logger.warning(f"🔍 ENROLL: Duplicate detected - {dup_reason}")
                     return EnrollmentResult(
                         success=False,
                         message=dup_reason,
@@ -180,8 +195,9 @@ class RecognitionService:
                 if faces:
                     pose_info = self.pose_classifier.classify_from_face(faces[0])
                     pose_category = pose_info.category.value if pose_info else None
+                    logger.info(f"🔍 ENROLL: Pose classified - category={pose_category}")
             except Exception as e:
-                logger.warning(f"Pose classification failed: {e}")
+                logger.warning(f"🔍 ENROLL: Pose classification failed: {e}")
             
             # Store encoding with enhanced metadata
             encoding = FaceEncoding(
@@ -196,9 +212,11 @@ class RecognitionService:
             )
             
             self.encoding_repo.create(encoding)
+            logger.info(f"🔍 ENROLL: Encoding saved to database")
             
             # Update centroid
             self._update_user_centroid(user_id)
+            logger.info(f"✅ ENROLL: Success for user {user_id}")
             
             return EnrollmentResult(
                 success=True,
@@ -210,7 +228,7 @@ class RecognitionService:
             )
             
         except Exception as e:
-            logger.error(f"Enrollment error: {e}")
+            logger.error(f"💥 ENROLL: Error - {e}", exc_info=True)
             return EnrollmentResult(
                 success=False,
                 message=f"Enrollment failed: {str(e)}"
