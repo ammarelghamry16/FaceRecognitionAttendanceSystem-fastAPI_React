@@ -38,6 +38,7 @@ interface UserFormData {
     full_name: string;
     role: UserRole;
     student_id: string;
+    major: string;
     group: string;
 }
 
@@ -47,7 +48,18 @@ const initialFormData: UserFormData = {
     full_name: '',
     role: 'student',
     student_id: '',
+    major: '',
     group: '',
+};
+
+// Majors and their groups
+const majorGroups: Record<string, string[]> = {
+    'Computer Science': ['CS-101', 'CS-102', 'CS-103', 'CS-104'],
+    'Information Technology': ['IT-101', 'IT-102', 'IT-103'],
+    'Software Engineering': ['SE-101', 'SE-102'],
+    'Data Science': ['DS-101', 'DS-102'],
+    'Cybersecurity': ['CY-101', 'CY-102'],
+    'Artificial Intelligence': ['AI-101', 'AI-102'],
 };
 
 const roleIcons: Record<UserRole, React.ComponentType<{ className?: string }>> = {
@@ -74,6 +86,28 @@ export default function Users() {
     const [roleFilter, setRoleFilter] = useState<string>('all');
     const [isSaving, setIsSaving] = useState(false);
 
+    // Generate next student ID based on existing IDs
+    const generateNextStudentId = useMemo(() => {
+        const currentYear = new Date().getFullYear();
+        const yearPrefix = `${currentYear}/`;
+        
+        // Find all student IDs that match the current year format
+        const currentYearIds = users
+            .filter(u => u.role === 'student' && u.student_id?.startsWith(yearPrefix))
+            .map(u => {
+                const numPart = u.student_id?.split('/')[1];
+                return numPart ? parseInt(numPart, 10) : 0;
+            })
+            .filter(n => !isNaN(n));
+        
+        // Get the max number and add 1
+        const maxNum = currentYearIds.length > 0 ? Math.max(...currentYearIds) : 0;
+        const nextNum = maxNum + 1;
+        
+        // Format with leading zeros (e.g., 00001, 00012, 00123)
+        return `${yearPrefix}${nextNum.toString().padStart(5, '0')}`;
+    }, [users]);
+
     // Fetch users
     const fetchUsers = async () => {
         try {
@@ -94,6 +128,13 @@ export default function Users() {
         fetchUsers();
     }, [roleFilter]);
 
+    // Auto-fill student ID when opening form for new student
+    useEffect(() => {
+        if (showForm && !editingUser && formData.role === 'student' && !formData.student_id) {
+            setFormData(prev => ({ ...prev, student_id: generateNextStudentId }));
+        }
+    }, [showForm, editingUser, formData.role, generateNextStudentId]);
+
     // Filter users by search query
     const filteredUsers = useMemo(() => {
         if (!searchQuery.trim()) return users;
@@ -106,11 +147,38 @@ export default function Users() {
         );
     }, [users, searchQuery]);
 
+    // Validate password
+    const validatePassword = (password: string): string | null => {
+        if (password.length < 8) {
+            return 'Password must be at least 8 characters';
+        }
+        if (!/[A-Z]/.test(password)) {
+            return 'Password must contain at least one uppercase letter';
+        }
+        if (!/[a-z]/.test(password)) {
+            return 'Password must contain at least one lowercase letter';
+        }
+        if (!/\d/.test(password)) {
+            return 'Password must contain at least one digit';
+        }
+        return null;
+    };
+
     // Handle form submit
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSaving(true);
         setError('');
+
+        // Validate password for new users
+        if (!editingUser) {
+            const passwordError = validatePassword(formData.password);
+            if (passwordError) {
+                setError(passwordError);
+                setIsSaving(false);
+                return;
+            }
+        }
 
         try {
             if (editingUser) {
@@ -123,7 +191,12 @@ export default function Users() {
                     if (formData.student_id) {
                         updateData.student_id = formData.student_id;
                     }
-                    updateData.group = formData.group || undefined;
+                    // Combine major and group
+                    if (formData.major && formData.group) {
+                        updateData.group = `${formData.major} - ${formData.group}`;
+                    } else if (formData.major) {
+                        updateData.group = formData.major;
+                    }
                 }
                 await authApi.updateUser(editingUser.id, updateData);
                 toast({
@@ -142,8 +215,11 @@ export default function Users() {
                     if (formData.student_id) {
                         registerData.student_id = formData.student_id;
                     }
-                    if (formData.group) {
-                        registerData.group = formData.group;
+                    // Combine major and group
+                    if (formData.major && formData.group) {
+                        registerData.group = `${formData.major} - ${formData.group}`;
+                    } else if (formData.major) {
+                        registerData.group = formData.major;
                     }
                 }
                 await authApi.register(registerData);
@@ -170,13 +246,22 @@ export default function Users() {
     // Handle edit
     const handleEdit = (user: User) => {
         setEditingUser(user);
+        // Try to extract major from group (format: "Major - Group")
+        let major = '';
+        let group = user.group || '';
+        if (user.group && user.group.includes(' - ')) {
+            const parts = user.group.split(' - ');
+            major = parts[0];
+            group = parts[1] || '';
+        }
         setFormData({
             email: user.email,
             password: '',
             full_name: user.full_name,
             role: user.role,
             student_id: user.student_id || '',
-            group: user.group || '',
+            major: major,
+            group: group,
         });
         setShowForm(true);
     };
@@ -318,10 +403,13 @@ export default function Users() {
                                         type="password"
                                         value={formData.password}
                                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                        placeholder="Min 8 chars, uppercase, lowercase, digit"
+                                        placeholder="e.g., Password1"
                                         required
                                         minLength={8}
                                     />
+                                    <p className="text-xs text-muted-foreground">
+                                        Min 8 chars with uppercase, lowercase, and digit
+                                    </p>
                                 </div>
                             )}
 
@@ -330,7 +418,14 @@ export default function Users() {
                                     <Label htmlFor="role">Role *</Label>
                                     <Select
                                         value={formData.role}
-                                        onValueChange={(value: UserRole) => setFormData({ ...formData, role: value })}
+                                        onValueChange={(value: UserRole) => {
+                                            const newData = { ...formData, role: value };
+                                            // Auto-fill student ID when switching to student role
+                                            if (value === 'student' && !editingUser && !formData.student_id) {
+                                                newData.student_id = generateNextStudentId;
+                                            }
+                                            setFormData(newData);
+                                        }}
                                     >
                                         <SelectTrigger>
                                             <SelectValue />
@@ -349,22 +444,58 @@ export default function Users() {
                                         <Input
                                             id="student_id"
                                             value={formData.student_id}
-                                            onChange={(e) => setFormData({ ...formData, student_id: e.target.value })}
-                                            placeholder="e.g., STU001"
+                                            readOnly
+                                            disabled
+                                            className="bg-muted"
                                         />
+                                        <p className="text-xs text-muted-foreground">
+                                            Auto-generated (YEAR/NUMBER)
+                                        </p>
                                     </div>
                                 )}
                             </div>
 
                             {formData.role === 'student' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="group">Group</Label>
-                                    <Input
-                                        id="group"
-                                        value={formData.group}
-                                        onChange={(e) => setFormData({ ...formData, group: e.target.value })}
-                                        placeholder="e.g., Group A, CS-101"
-                                    />
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="major">Major</Label>
+                                        <Select
+                                            value={formData.major}
+                                            onValueChange={(value) => {
+                                                setFormData({ ...formData, major: value, group: '' });
+                                            }}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select major" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {Object.keys(majorGroups).map((major) => (
+                                                    <SelectItem key={major} value={major}>
+                                                        {major}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="group">Group</Label>
+                                        <Select
+                                            value={formData.group}
+                                            onValueChange={(value) => setFormData({ ...formData, group: value })}
+                                            disabled={!formData.major}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={formData.major ? "Select group" : "Select major first"} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {formData.major && majorGroups[formData.major]?.map((group) => (
+                                                    <SelectItem key={group} value={group}>
+                                                        {group}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
                             )}
 
@@ -418,9 +549,22 @@ export default function Users() {
                                                     </p>
                                                 )}
                                                 {user.role === 'student' && user.group && (
-                                                    <p className="text-sm text-muted-foreground">
-                                                        Group: {user.group}
-                                                    </p>
+                                                    <>
+                                                        {user.group.includes(' - ') ? (
+                                                            <>
+                                                                <p className="text-sm text-muted-foreground">
+                                                                    Major: {user.group.split(' - ')[0]}
+                                                                </p>
+                                                                <p className="text-sm text-muted-foreground">
+                                                                    Group: {user.group.split(' - ')[1]}
+                                                                </p>
+                                                            </>
+                                                        ) : (
+                                                            <p className="text-sm text-muted-foreground">
+                                                                Major: {user.group}
+                                                            </p>
+                                                        )}
+                                                    </>
                                                 )}
                                             </div>
                                         </div>

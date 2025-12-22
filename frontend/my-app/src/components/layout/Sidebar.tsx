@@ -45,6 +45,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   roles?: ('student' | 'mentor' | 'admin')[];
   badge?: number;
+  iconColor?: string;
 }
 
 const navItems: NavItem[] = [
@@ -52,51 +53,60 @@ const navItems: NavItem[] = [
     title: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
+    iconColor: 'text-blue-500',
   },
   {
     title: 'Schedule',
     href: '/schedule',
     icon: CalendarDays,
+    iconColor: 'text-purple-500',
   },
   {
     title: 'Courses',
     href: '/courses',
     icon: BookOpen,
     roles: ['admin'],
+    iconColor: 'text-emerald-500',
   },
   {
     title: 'Classes',
     href: '/classes',
     icon: Calendar,
-    roles: ['admin', 'mentor'],
+    roles: ['admin'],
+    iconColor: 'text-indigo-500',
   },
   {
     title: 'Enrollments',
     href: '/enrollments',
     icon: Users,
     roles: ['admin'],
+    iconColor: 'text-cyan-500',
   },
   {
     title: 'User Management',
     href: '/users',
     icon: UserCog,
     roles: ['admin'],
+    iconColor: 'text-orange-500',
   },
   {
     title: 'Attendance',
     href: '/attendance',
     icon: CheckSquare,
+    iconColor: 'text-green-500',
   },
   {
     title: 'Face Enrollment',
     href: '/face-enrollment',
     icon: Camera,
     roles: ['student', 'admin'],
+    iconColor: 'text-pink-500',
   },
   {
     title: 'Notifications',
     href: '/notifications',
     icon: Bell,
+    iconColor: 'text-yellow-500',
   },
 ];
 
@@ -105,6 +115,7 @@ const bottomItems: NavItem[] = [
     title: 'Settings',
     href: '/profile',
     icon: Settings,
+    iconColor: 'text-slate-500',
   },
 ];
 
@@ -190,7 +201,7 @@ export default function Sidebar() {
       >
         {/* Fixed icon container - always same width */}
         <div className="w-10 h-10 flex items-center justify-center shrink-0 relative">
-          <item.icon className="h-5 w-5" />
+          <item.icon className={cn('h-5 w-5', item.iconColor)} />
           {/* Badge dot when collapsed */}
           {!showText && badgeCount && badgeCount > 0 && (
             <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />

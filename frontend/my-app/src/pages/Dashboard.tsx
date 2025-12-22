@@ -22,16 +22,18 @@ import {
   CheckCircle,
   ArrowRight,
   AlertCircle,
+  GraduationCap,
 } from 'lucide-react';
 import { CardSkeleton, ScheduleCardSkeleton } from '@/components/ui/skeleton';
 import api from '@/services/api';
-import { classApi } from '@/services/scheduleService';
+import { classApi, enrollmentApi } from '@/services/scheduleService';
 import type { Class } from '@/services/scheduleService';
 
 interface DashboardStats {
   courses: number;
   classes: number;
   students: number;
+  mentors: number;
   attendanceRate: number;
 }
 
@@ -42,6 +44,7 @@ export default function Dashboard() {
     courses: 0,
     classes: 0,
     students: 0,
+    mentors: 0,
     attendanceRate: 0,
   });
   const [todayClasses, setTodayClasses] = useState<Class[]>([]);
@@ -55,58 +58,135 @@ export default function Dashboard() {
     const fetchData = async () => {
       setError(null);
       try {
-        // Fetch dashboard stats from the new stats endpoint
-        const [statsRes, coursesRes, classesRes] = await Promise.allSettled([
-          api.get('/api/stats/dashboard'),
-          api.get('/api/schedule/courses'),
-          api.get('/api/schedule/classes'),
-        ]);
-
-        // Fetch today's classes
+        // Fetch today's classes based on user role
         let todaySchedule: Class[] = [];
+        let studentCourses = 0;
+        let studentClasses = 0;
+        let mentorCourses = 0;
+        let mentorClasses = 0;
+        let mentorStudents = 0;
+        
         try {
-          const scheduleRes = await classApi.getByDay(today);
-          todaySchedule = scheduleRes.data || [];
+          if (user?.role === 'mentor' && user?.id) {
+            // For mentors, get their assigned classes and filter by today
+            const mentorScheduleRes = await classApi.getByMentor(user.id);
+            const allMentorClasses = mentorScheduleRes.data || [];
+            todaySchedule = allMentorClasses.filter(
+              (cls: Class) => cls.day_of_week === today
+            );
+            // Count mentor's classes and unique courses
+            mentorClasses = allMentorClasses.length;
+            const uniqueCourseIds = new Set(allMentorClasses.map((cls: Class) => cls.course_id));
+            mentorCourses = uniqueCourseIds.size;
+            // Count unique students enrolled in mentor's classes
+            const studentIds = new Set<string>();
+            // Fetch enrollments for each class
+            const enrollmentPromises = allMentorClasses.map((cls: Class) => 
+              enrollmentApi.getByClass(cls.id).catch(() => ({ data: [] }))
+            );
+            const enrollmentResults = await Promise.all(enrollmentPromises);
+            enrollmentResults.forEach((result) => {
+              const enrollments = result.data || [];
+              enrollments.forEach((enrollment: { student_id: string }) => {
+                studentIds.add(enrollment.student_id);
+              });
+            });
+            mentorStudents = studentIds.size;
+          } else if (user?.role === 'student' && user?.id) {
+            // For students, get their enrolled classes and filter by today
+            const studentScheduleRes = await classApi.getByStudent(user.id);
+            const allStudentClasses = studentScheduleRes.data || [];
+            todaySchedule = allStudentClasses.filter(
+              (cls: Class) => cls.day_of_week === today
+            );
+            // Count student's enrolled classes and unique courses
+            studentClasses = allStudentClasses.length;
+            const uniqueCourseIds = new Set(allStudentClasses.map((cls: Class) => cls.course_id));
+            studentCourses = uniqueCourseIds.size;
+          } else {
+            // For admin, show all classes for today
+            const scheduleRes = await classApi.getByDay(today);
+            todaySchedule = scheduleRes.data || [];
+          }
         } catch {
           todaySchedule = [];
         }
 
-        // Use stats from API if available
-        if (statsRes.status === 'fulfilled' && statsRes.value.data) {
-          const apiStats = statsRes.value.data;
+        // Set stats based on role
+        if (user?.role === 'student') {
           setStats({
-            courses: apiStats.total_courses || 0,
-            classes: apiStats.total_classes || 0,
-            students: apiStats.total_students || 0,
-            attendanceRate: apiStats.overall_attendance_rate || 0,
-          });
-        } else {
-          // Fallback to counting from individual endpoints
-          setStats({
-            courses: coursesRes.status === 'fulfilled' ? coursesRes.value.data?.length || 0 : 0,
-            classes: classesRes.status === 'fulfilled' ? classesRes.value.data?.length || 0 : 0,
+            courses: studentCourses,
+            classes: studentClasses,
             students: 0,
+            mentors: 0,
             attendanceRate: 0,
           });
+        } else if (user?.role === 'mentor') {
+          setStats({
+            courses: mentorCourses,
+            classes: mentorClasses,
+            students: mentorStudents,
+            mentors: 0,
+            attendanceRate: 0,
+          });
+        } else {
+          // Fetch dashboard stats from the stats endpoint for admin
+          const [statsRes, coursesRes, classesRes] = await Promise.allSettled([
+            api.get('/api/stats/dashboard'),
+            api.get('/api/schedule/courses'),
+            api.get('/api/schedule/classes'),
+          ]);
+
+          // Use stats from API if available
+          if (statsRes.status === 'fulfilled' && statsRes.value.data) {
+            const apiStats = statsRes.value.data;
+            setStats({
+              courses: apiStats.total_courses || 0,
+              classes: apiStats.total_classes || 0,
+              students: apiStats.total_students || 0,
+              mentors: apiStats.total_mentors || 0,
+              attendanceRate: apiStats.overall_attendance_rate || 0,
+            });
+          } else {
+            // Fallback to counting from individual endpoints
+            setStats({
+              courses: coursesRes.status === 'fulfilled' ? coursesRes.value.data?.length || 0 : 0,
+              classes: classesRes.status === 'fulfilled' ? classesRes.value.data?.length || 0 : 0,
+              students: 0,
+              mentors: 0,
+              attendanceRate: 0,
+            });
+          }
         }
 
         setTodayClasses(todaySchedule);
       } catch (err) {
         console.error('Failed to fetch dashboard data:', err);
         setError('Failed to load dashboard data. Please check your connection.');
-        setStats({ courses: 0, classes: 0, students: 0, attendanceRate: 0 });
+        setStats({ courses: 0, classes: 0, students: 0, mentors: 0, attendanceRate: 0 });
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchData();
-  }, [today]);
+  }, [today, user?.role, user?.id]);
 
-  const statCards = [
+  const statCards = user?.role === 'admin' ? [
     { title: 'Courses', value: stats.courses, icon: BookOpen, color: 'text-blue-600' },
     { title: 'Classes', value: stats.classes, icon: Calendar, color: 'text-purple-600' },
     { title: 'Students', value: stats.students, icon: Users, color: 'text-green-600' },
+    { title: 'Mentors', value: stats.mentors, icon: GraduationCap, color: 'text-indigo-600' },
+    { title: 'Notifications', value: unreadCount, icon: Bell, color: 'text-orange-600' },
+  ] : user?.role === 'mentor' ? [
+    { title: 'My Courses', value: stats.courses, icon: BookOpen, color: 'text-blue-600' },
+    { title: 'My Classes', value: stats.classes, icon: Calendar, color: 'text-purple-600' },
+    { title: 'My Students', value: stats.students, icon: Users, color: 'text-green-600' },
+    { title: 'Notifications', value: unreadCount, icon: Bell, color: 'text-orange-600' },
+  ] : [
+    // Student: only show their enrolled courses and classes
+    { title: 'My Courses', value: stats.courses, icon: BookOpen, color: 'text-blue-600' },
+    { title: 'My Classes', value: stats.classes, icon: Calendar, color: 'text-purple-600' },
     { title: 'Notifications', value: unreadCount, icon: Bell, color: 'text-orange-600' },
   ];
 
@@ -137,9 +217,9 @@ export default function Dashboard() {
       )}
 
       {/* Stats Grid */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+      <div className={`grid gap-4 grid-cols-2 ${user?.role === 'admin' ? 'lg:grid-cols-5' : user?.role === 'mentor' ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
         {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)
+          Array.from({ length: user?.role === 'admin' ? 5 : user?.role === 'mentor' ? 4 : 3 }).map((_, i) => <CardSkeleton key={i} />)
         ) : (
           statCards.map((stat) => (
             <Card key={stat.title}>

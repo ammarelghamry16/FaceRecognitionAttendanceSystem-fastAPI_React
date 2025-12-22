@@ -132,6 +132,9 @@ export default function Attendance() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Get today's day name
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+
   // Fetch classes on mount
   useEffect(() => {
     const fetchData = async () => {
@@ -157,8 +160,16 @@ export default function Attendance() {
             setStudentStats({ present: 0, late: 0, absent: 0, total: 0, rate: 0 });
           }
         } else {
-          // Fetch classes for mentor/admin
-          const classesRes = await classApi.getAll();
+          // Fetch classes for mentor/admin - only today's classes
+          let classesRes;
+          if (user?.role === 'mentor' && user?.id) {
+            // Mentors only see their assigned classes for today
+            classesRes = await classApi.getByMentor(user.id);
+            classesRes.data = classesRes.data.filter((c: Class) => c.day_of_week === today);
+          } else {
+            // Admins see all classes for today
+            classesRes = await classApi.getByDay(today);
+          }
           setClasses(classesRes.data);
         }
       } catch (err) {

@@ -40,6 +40,7 @@ export interface Class {
   created_at: string;
   updated_at: string;
   course?: Course;
+  enrollments?: { student_id: string }[];
 }
 
 export interface ClassCreate {
