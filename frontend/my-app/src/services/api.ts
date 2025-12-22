@@ -10,15 +10,30 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,  // Required for cross-origin cookies (ngrok/Vercel)
 });
 
 // Request interceptor - add auth token when available
 api.interceptors.request.use(
   (config) => {
     // Check both localStorage and sessionStorage for token
-    const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+    const localToken = localStorage.getItem('access_token');
+    const sessionToken = sessionStorage.getItem('access_token');
+    const token = localToken || sessionToken;
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // Debug logging for enrollment requests
+    if (config.url?.includes('/enroll') || config.url?.includes('/ai/')) {
+      console.log('[API] Request:', config.method?.toUpperCase(), config.url);
+      console.log('[API] Token source:', localToken ? 'localStorage' : sessionToken ? 'sessionStorage' : 'none');
+      console.log('[API] Has Authorization:', !!config.headers.Authorization);
+      if (token) {
+        // Show first/last few chars of token for debugging
+        console.log('[API] Token preview:', token.substring(0, 20) + '...' + token.substring(token.length - 10));
+      }
     }
     return config;
   },
@@ -35,7 +50,10 @@ api.interceptors.response.use(
     const isAuthEndpoint = requestUrl.includes('/auth/login') ||
       requestUrl.includes('/auth/register');
 
-    if (error.response?.status === 401 && !isAuthEndpoint) {
+    // Don't auto-redirect for enrollment endpoints - let the component handle it
+    const isEnrollmentEndpoint = requestUrl.includes('/enroll');
+
+    if (error.response?.status === 401 && !isAuthEndpoint && !isEnrollmentEndpoint) {
       // Token expired or invalid - clear both storages and redirect
       localStorage.removeItem('access_token');
       localStorage.removeItem('user');

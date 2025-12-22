@@ -60,12 +60,14 @@ app = FastAPI(
 # CORS Configuration
 origins = [
     "http://localhost:3000",  # React Frontend
+    "http://localhost:3001",  # React Frontend (alternate port)
     "http://localhost:5173",  # Vite Frontend
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel deployments
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

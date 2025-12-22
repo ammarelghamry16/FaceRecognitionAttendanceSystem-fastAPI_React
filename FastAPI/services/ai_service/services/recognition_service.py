@@ -188,8 +188,8 @@ class RecognitionService:
                 user_id=user_id,
                 encoding=embedding.tolist(),
                 encoding_version=self.adapter.name,
-                image_quality_score=result.confidence_scores[0],
-                quality_score=quality_metrics.overall_score,
+                image_quality_score=float(result.confidence_scores[0]),
+                quality_score=float(quality_metrics.overall_score),  # Convert np.float64 to Python float
                 pose_category=pose_category,
                 is_adaptive=False,
                 source_image_path=source_path

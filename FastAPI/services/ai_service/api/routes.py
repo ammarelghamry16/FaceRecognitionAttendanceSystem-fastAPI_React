@@ -30,13 +30,19 @@ router = APIRouter()
 async def enroll_face(
     user_id: UUID = Form(...),
     image: UploadFile = File(...),
-    current_user: User = Depends(require_role(["admin"])),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db_session)
 ):
     """
     Enroll a single face image for a user.
-    Admin only - used to register student faces.
+    Users can enroll their own face, admins can enroll any user.
     """
+    # Check authorization: user can enroll themselves, admin can enroll anyone
+    if str(current_user.id) != str(user_id) and current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only enroll your own face"
+        )
     content = await image.read()
     
     service = RecognitionService(db)
@@ -66,13 +72,20 @@ async def enroll_face(
 async def enroll_multiple_faces(
     user_id: UUID = Form(...),
     images: List[UploadFile] = File(...),
-    current_user: User = Depends(require_role(["admin"])),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db_session)
 ):
     """
     Enroll multiple face images for a user.
+    Users can enroll their own face, admins can enroll any user.
     Recommended: 3-5 images from different angles.
     """
+    # Check authorization: user can enroll themselves, admin can enroll anyone
+    if str(current_user.id) != str(user_id) and current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only enroll your own face"
+        )
     if len(images) > 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -195,10 +208,16 @@ def get_enrollment_status(
 @router.delete("/enrollment/{user_id}")
 def delete_user_enrollment(
     user_id: UUID,
-    current_user: User = Depends(require_role(["admin"])),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db_session)
 ):
-    """Delete all face encodings for a user (admin only)."""
+    """Delete all face encodings for a user. Users can delete their own, admins can delete any."""
+    # Check authorization: user can delete their own, admin can delete anyone
+    if str(current_user.id) != str(user_id) and current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own face enrollment"
+        )
     service = RecognitionService(db)
     count = service.delete_user_encodings(user_id)
     
