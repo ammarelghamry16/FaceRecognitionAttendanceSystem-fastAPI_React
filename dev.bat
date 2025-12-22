@@ -67,29 +67,21 @@ echo.
 :: Check Frontend (port 3000)
 netstat -an | find "3000" | find "LISTENING" > nul 2>&1
 if %errorlevel%==0 (
-    echo   [OK] Frontend ^(Vite^)         - Running on http://localhost:3000
+    echo   [OK] Frontend (Local Dev)       - Running on http://localhost:3000
     set FRONTEND_OK=1
 ) else (
-    echo   [--] Frontend ^(Vite^)         - Not Running
+    echo   [--] Frontend (Local Dev)       - Not Running
     set FRONTEND_OK=0
 )
 
 :: Check Backend (port 8000)
 netstat -an | find "8000" | find "LISTENING" > nul 2>&1
 if %errorlevel%==0 (
-    echo   [OK] Backend API ^(FastAPI^)   - Running on http://localhost:8000
+    echo   [OK] Backend API (Local Dev)    - Running on http://localhost:8000
     set BACKEND_OK=1
 ) else (
-    echo   [--] Backend API ^(FastAPI^)   - Not Running
+    echo   [--] Backend API (Local Dev)    - Not Running
     set BACKEND_OK=0
-)
-
-:: Check PostgreSQL (port 5432) - local only
-netstat -an | find "5432" | find "LISTENING" > nul 2>&1
-if %errorlevel%==0 (
-    echo   [OK] PostgreSQL ^(Local^)      - Running on port 5432
-) else (
-    echo   [--] PostgreSQL ^(Local^)      - Not Running ^(using Supabase cloud^)
 )
 
 :: Check Redis (port 6379)
@@ -97,12 +89,12 @@ netstat -an | find "6379" | find "LISTENING" > nul 2>&1
 if %errorlevel%==0 (
     echo   [OK] Redis Cache             - Running on port 6379
 ) else (
-    echo   [--] Redis Cache             - Not Running ^(optional^)
+    echo   [--] Redis Cache             - Not Running (using Cloud Redis if configured)
 )
 
 echo.
 echo ========================================
-echo            SETUP STATUS
+echo             SETUP STATUS
 echo ========================================
 echo.
 
@@ -132,38 +124,43 @@ echo ========================================
 echo             ACCESS URLS
 echo ========================================
 echo.
+echo   [LOCAL DEV]
 echo   Frontend:     http://localhost:3000
-echo   Backend API:  http://localhost:8000
-echo   API Docs:     http://localhost:8000/docs
-echo   WebSocket:    ws://localhost:8000/api/notifications/ws/{user_id}
+echo   Backend:      http://localhost:8000
+echo.
+echo   [CLOUD DEPLOYMENT]
+echo   Frontend:     https://attendance-frontend.vercel.app  (Check your Vercel URL)
+echo   Backend API:  https://legendpanda-face-detection-attendance-system.hf.space
+echo   API Docs:     https://legendpanda-face-detection-attendance-system.hf.space/docs
+echo   WebSocket:    wss://legendpanda-face-detection-attendance-system.hf.space/api/notifications/ws/{user_id}
 echo.
 echo ========================================
-echo            TEST ACCOUNTS
+echo             TEST ACCOUNTS
 echo ========================================
 echo.
 echo   Student:  student@test.com
 echo   Mentor:   mentor@test.com
 echo   Admin:    admin@test.com
-echo   Password: any password ^(demo mode^)
+echo   Password: any password (demo mode)
 echo.
 echo ========================================
-echo              SUMMARY
+echo               SUMMARY
 echo ========================================
 echo.
 
 if "%FRONTEND_OK%"=="1" if "%BACKEND_OK%"=="1" (
-    echo   [OK] All required services are running!
+    echo   [OK] Local development environment is running!
 ) else (
-    echo   [!!] Some services are not running
+    echo   [!!] Some local services are not running
     echo.
-    echo   To start all services, run: dev.bat
+    echo   To start local services, run: dev.bat
 )
 
 echo.
 echo ========================================
 echo.
 echo Commands:
-echo   dev.bat          - Start all services
+echo   dev.bat          - Start all services locally
 echo   dev.bat status   - Check service status
 echo   dev.bat stop     - Stop all services
 echo   dev.bat help     - Show this help
@@ -176,11 +173,11 @@ echo Stopping services...
 echo.
 :: Kill processes on ports
 for /f "tokens=5" %%a in ('netstat -ano ^| find "3000" ^| find "LISTENING"') do (
-    echo Stopping Frontend ^(PID: %%a^)...
+    echo Stopping Frontend (PID: %%a)...
     taskkill /PID %%a /F > nul 2>&1
 )
 for /f "tokens=5" %%a in ('netstat -ano ^| find "8000" ^| find "LISTENING"') do (
-    echo Stopping Backend ^(PID: %%a^)...
+    echo Stopping Backend (PID: %%a)...
     taskkill /PID %%a /F > nul 2>&1
 )
 echo.
@@ -194,16 +191,10 @@ echo.
 echo Usage: dev.bat [command]
 echo.
 echo Commands:
-echo   ^(none^)    Start all services ^(frontend + backend^)
+echo   (none)    Start all services (frontend + backend)
 echo   status    Check status of all services
 echo   stop      Stop all running services
 echo   help      Show this help message
-echo.
-echo Services:
-echo   - Frontend ^(Vite^) on port 3000
-echo   - Backend ^(FastAPI^) on port 8000
-echo   - PostgreSQL ^(Supabase cloud or local^)
-echo   - Redis ^(optional, for caching^)
 echo.
 goto :end
 

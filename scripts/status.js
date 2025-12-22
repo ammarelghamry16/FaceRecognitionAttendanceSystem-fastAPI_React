@@ -3,6 +3,7 @@
  * Checks: Frontend, Backend API, PostgreSQL Database, Redis Cache
  */
 const http = require('http');
+const https = require('https'); // Added HTTPS support
 const net = require('net');
 const { execSync } = require('child_process');
 const path = require('path');
@@ -69,18 +70,25 @@ const dbConfig = parseDatabaseUrl(config.DATABASE_URL);
 // Service definitions
 const services = [
     {
-        name: 'Frontend (Vite)',
+        name: 'Frontend (Local)',
         type: 'http',
         url: 'http://localhost:3000',
         port: 3000,
-        required: true,
+        required: false, // Not required if using cloud
     },
     {
-        name: 'Backend API (FastAPI)',
+        name: 'Backend API (Local)',
         type: 'http',
         url: 'http://localhost:8000/docs',
         port: 8000,
-        required: true,
+        required: false,
+    },
+    {
+        name: 'Backend API (Cloud)',
+        type: 'https', // Changed to HTTPS check
+        url: 'https://legendpanda-face-detection-attendance-system.hf.space/docs',
+        port: 443,
+        required: true, // This is your main production backend now
     },
     {
         name: 'PostgreSQL Database',
@@ -100,10 +108,11 @@ const services = [
     },
 ];
 
-// Check HTTP service
+// Check HTTP/HTTPS service
 function checkHttp(service) {
+    const protocol = service.type === 'https' ? https : http;
     return new Promise((resolve) => {
-        const req = http.get(service.url, { timeout: 3000 }, (res) => {
+        const req = protocol.get(service.url, { timeout: 5000 }, (res) => {
             resolve({ ...service, status: 'running', statusCode: res.statusCode });
         });
         req.on('error', () => {
@@ -184,7 +193,7 @@ function printSetup(name, installed, info = '') {
 async function main() {
     console.log('');
     console.log(`${colors.cyan}${colors.bold}`);
-    console.log('    _   _   _                 _                      _    ___ ');
+    console.log('    _   _   _                     _                      _    ___ ');
     console.log('   / \\ | |_| |_ ___ _ __   __| | __ _ _ __   ___ ___/ \\  |_ _|');
     console.log('  / _ \\| __| __/ _ \\ \'_ \\ / _` |/ _` | \'_ \\ / __/ _ / _ \\  | | ');
     console.log(' / ___ \\ |_| ||  __/ | | | (_| | (_| | | | | (_|  __/ ___ \\ | | ');
@@ -197,7 +206,7 @@ async function main() {
 
     const results = await Promise.all(
         services.map(service => {
-            if (service.type === 'http') return checkHttp(service);
+            if (service.type === 'http' || service.type === 'https') return checkHttp(service);
             if (service.type === 'tcp') return checkTcp(service);
             return Promise.resolve({ ...service, status: 'unknown' });
         })
@@ -219,15 +228,20 @@ async function main() {
 
     printSetup('Python Virtual Env', pythonVenv, 'FastAPI/venv');
     printSetup('Node Modules', nodeModules, 'frontend/my-app/node_modules');
-    printSetup('Database Config', !!dbConfig, dbConfig ? 'Supabase' : 'Not found');
-    printSetup('Redis Config', !!config.REDIS_HOST, config.REDIS_HOST);
+    printSetup('Database Config', !!dbConfig, dbConfig ? 'Supabase Cloud' : 'Not found');
+    printSetup('Redis Config', !!config.REDIS_HOST, config.REDIS_HOST !== 'localhost' ? 'Cloud Redis' : 'Localhost (Warning)');
 
     // URLs
     printHeader('ACCESS URLS');
+    console.log(`${colors.bold} [LOCAL DEV]${colors.reset}`);
     console.log(`  ${colors.blue}Frontend:${colors.reset}     http://localhost:3000`);
     console.log(`  ${colors.blue}Backend API:${colors.reset}  http://localhost:8000`);
-    console.log(`  ${colors.blue}API Docs:${colors.reset}     http://localhost:8000/docs`);
-    console.log(`  ${colors.blue}WebSocket:${colors.reset}    ws://localhost:8000/api/notifications/ws/{user_id}`);
+    console.log('');
+    console.log(`${colors.bold} [CLOUD DEPLOYMENT]${colors.reset}`);
+    console.log(`  ${colors.blue}Frontend:${colors.reset}     https://attendance-frontend.vercel.app`);
+    console.log(`  ${colors.blue}Backend API:${colors.reset}  https://legendpanda-face-detection-attendance-system.hf.space`);
+    console.log(`  ${colors.blue}API Docs:${colors.reset}     https://legendpanda-face-detection-attendance-system.hf.space/docs`);
+    console.log(`  ${colors.blue}WebSocket:${colors.reset}    wss://legendpanda-face-detection-attendance-system.hf.space/api/notifications/ws/{user_id}`);
 
     // Test accounts
     printHeader('TEST ACCOUNTS');
@@ -249,7 +263,7 @@ async function main() {
         console.log(`  ${colors.red}${colors.bold}✗ Some required services are not running${colors.reset}`);
         console.log(`  ${colors.dim}${runningCount}/${totalCount} services online${colors.reset}`);
         console.log('');
-        console.log(`  ${colors.yellow}To start all services, run:${colors.reset}`);
+        console.log(`  ${colors.yellow}To start local services, run:${colors.reset}`);
         console.log(`  ${colors.cyan}npm run dev${colors.reset}`);
     }
 
