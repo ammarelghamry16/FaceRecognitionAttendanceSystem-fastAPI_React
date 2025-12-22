@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
+import logging
 
 from shared.database.connection import get_db_session
 from shared.models.user import User
@@ -21,6 +22,9 @@ from ..schemas.response import (
     EnrollmentMetricsResponse
 )
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -30,14 +34,24 @@ router = APIRouter()
 async def enroll_face(
     user_id: UUID = Form(...),
     image: UploadFile = File(...),
-    current_user: User = Depends(require_role(["admin"])),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db_session)
 ):
     """
     Enroll a single face image for a user.
-    Admin only - used to register student faces.
+    Users can enroll their own face, admins can enroll any user.
     """
+    logger.info(f"📸 ENROLL_FACE: user_id={user_id}, current_user={current_user.id} ({current_user.role}), filename={image.filename}")
+    
+    # Check authorization: user can enroll themselves, admin can enroll anyone
+    if str(current_user.id) != str(user_id) and current_user.role != "admin":
+        logger.warning(f"❌ ENROLL_FACE: Authorization failed - user {current_user.id} cannot enroll {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only enroll your own face"
+        )
     content = await image.read()
+    logger.info(f"📸 ENROLL_FACE: Image size={len(content)} bytes")
     
     service = RecognitionService(db)
     result = service.enroll_face(
@@ -46,12 +60,16 @@ async def enroll_face(
         source_path=image.filename
     )
     
+    logger.info(f"📸 ENROLL_FACE: Result success={result.success}, message={result.message}, quality={result.quality_score:.2f}")
+    
     if not result.success:
+        logger.warning(f"❌ ENROLL_FACE: Failed - {result.message}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result.message
         )
     
+    logger.info(f"✅ ENROLL_FACE: Success - encodings_count={result.encodings_count}, pose={result.pose_category}")
     return EnrollmentResponse(
         success=result.success,
         user_id=result.user_id,
@@ -66,26 +84,45 @@ async def enroll_face(
 async def enroll_multiple_faces(
     user_id: UUID = Form(...),
     images: List[UploadFile] = File(...),
-    current_user: User = Depends(require_role(["admin"])),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db_session)
 ):
     """
     Enroll multiple face images for a user.
+    Users can enroll their own face, admins can enroll any user.
     Recommended: 3-5 images from different angles.
     """
+    logger.info(f"📸 ENROLL_MULTIPLE: user_id={user_id}, current_user={current_user.id} ({current_user.role}), image_count={len(images)}")
+    
+    # Check authorization: user can enroll themselves, admin can enroll anyone
+    if str(current_user.id) != str(user_id) and current_user.role != "admin":
+        logger.warning(f"❌ ENROLL_MULTIPLE: Authorization failed - user {current_user.id} cannot enroll {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only enroll your own face"
+        )
     if len(images) > 10:
+        logger.warning(f"❌ ENROLL_MULTIPLE: Too many images ({len(images)} > 10)")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Maximum 10 images allowed per request"
         )
     
     image_bytes = []
-    for img in images:
+    for i, img in enumerate(images):
         content = await img.read()
         image_bytes.append(content)
+        logger.info(f"📸 ENROLL_MULTIPLE: Image {i} size={len(content)} bytes, filename={img.filename}")
     
     service = RecognitionService(db)
     result = service.enroll_multiple(user_id, image_bytes)
+    
+    logger.info(f"📸 ENROLL_MULTIPLE: Result success={result.success}, message={result.message}, encodings={result.encodings_count}")
+    
+    if not result.success:
+        logger.warning(f"❌ ENROLL_MULTIPLE: Failed - {result.message}")
+    else:
+        logger.info(f"✅ ENROLL_MULTIPLE: Success - {result.encodings_count}/{len(images)} enrolled")
     
     return EnrollmentResponse(
         success=result.success,
@@ -195,10 +232,16 @@ def get_enrollment_status(
 @router.delete("/enrollment/{user_id}")
 def delete_user_enrollment(
     user_id: UUID,
-    current_user: User = Depends(require_role(["admin"])),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db_session)
 ):
-    """Delete all face encodings for a user (admin only)."""
+    """Delete all face encodings for a user. Users can delete their own, admins can delete any."""
+    # Check authorization: user can delete their own, admin can delete anyone
+    if str(current_user.id) != str(user_id) and current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own face enrollment"
+        )
     service = RecognitionService(db)
     count = service.delete_user_encodings(user_id)
     

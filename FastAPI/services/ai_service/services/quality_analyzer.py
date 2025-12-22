@@ -32,19 +32,19 @@ class QualityAnalyzer:
     - Face size: Ratio of face area to image area
     """
     
-    # Quality thresholds
-    MIN_QUALITY_SCORE = 0.6
-    MIN_FACE_SIZE_RATIO = 0.10
-    MIN_DETECTION_CONFIDENCE = 0.7
+    # Quality thresholds - balanced for accuracy and usability
+    MIN_QUALITY_SCORE = 0.5  # Lowered for better acceptance
+    MIN_FACE_SIZE_RATIO = 0.02  # 2% minimum - allows faces at normal webcam distance
+    MIN_DETECTION_CONFIDENCE = 0.6  # Slightly lower confidence threshold
     
     # Weights for overall score calculation
-    WEIGHT_SHARPNESS = 0.35
+    WEIGHT_SHARPNESS = 0.30
     WEIGHT_LIGHTING = 0.25
     WEIGHT_FACE_SIZE = 0.20
-    WEIGHT_CONFIDENCE = 0.20
+    WEIGHT_CONFIDENCE = 0.25
     
     # Sharpness calibration (Laplacian variance thresholds)
-    SHARPNESS_MIN = 50.0    # Below this = very blurry
+    SHARPNESS_MIN = 30.0    # Below this = very blurry (lowered)
     SHARPNESS_MAX = 500.0   # Above this = very sharp
     
     def analyze(
@@ -203,28 +203,75 @@ class QualityAnalyzer:
         """
         # Check for multiple faces
         if face_count > 1:
-            return False, f"Multiple faces detected ({face_count}). Please use single-face image"
+            return False, f"Multiple faces detected ({face_count}). Please ensure only one person is in frame."
         
         # Check detection confidence
         if metrics.detection_confidence < self.MIN_DETECTION_CONFIDENCE:
-            return False, f"Face detection confidence too low ({metrics.detection_confidence:.2f} < {self.MIN_DETECTION_CONFIDENCE})"
+            return False, f"Face not clearly detected (confidence: {metrics.detection_confidence:.0%}). Please face the camera directly."
         
-        # Check face size
+        # Check face size - provide helpful guidance
         if metrics.face_size_ratio < self.MIN_FACE_SIZE_RATIO:
-            return False, f"Face too small ({metrics.face_size_ratio:.1%} < {self.MIN_FACE_SIZE_RATIO:.0%}). Move closer to camera"
+            percentage = metrics.face_size_ratio * 100
+            return False, f"Face too small ({percentage:.1f}%). Please move closer to the camera or ensure your face fills more of the frame."
         
         # Check overall quality
         if metrics.overall_score < self.MIN_QUALITY_SCORE:
-            # Provide specific feedback
+            # Provide specific feedback based on what's wrong
             issues = []
-            if metrics.sharpness < 0.4:
-                issues.append("image is blurry")
-            if metrics.lighting_uniformity < 0.4:
-                issues.append("poor lighting")
+            suggestions = []
             
-            reason = f"Image quality too low ({metrics.overall_score:.2f} < {self.MIN_QUALITY_SCORE})"
+            if metrics.sharpness < 0.3:
+                issues.append("blurry image")
+                suggestions.append("hold still")
+            if metrics.lighting_uniformity < 0.3:
+                issues.append("poor lighting")
+                suggestions.append("improve lighting or face a light source")
+            
+            reason = f"Image quality insufficient ({metrics.overall_score:.0%})"
             if issues:
                 reason += f": {', '.join(issues)}"
+            if suggestions:
+                reason += f". Try: {', '.join(suggestions)}"
             return False, reason
         
         return True, None
+    
+    def get_quality_feedback(self, metrics: QualityMetrics) -> dict:
+        """
+        Get detailed quality feedback for UI display.
+        
+        Returns dict with:
+        - acceptable: bool
+        - score: float (0-1)
+        - issues: list of issue strings
+        - suggestions: list of suggestion strings
+        """
+        issues = []
+        suggestions = []
+        
+        if metrics.face_size_ratio < self.MIN_FACE_SIZE_RATIO:
+            issues.append("Face too small")
+            suggestions.append("Move closer to camera")
+        
+        if metrics.sharpness < 0.3:
+            issues.append("Image is blurry")
+            suggestions.append("Hold still while capturing")
+        
+        if metrics.lighting_uniformity < 0.3:
+            issues.append("Poor lighting")
+            suggestions.append("Face a light source or improve room lighting")
+        
+        if metrics.detection_confidence < self.MIN_DETECTION_CONFIDENCE:
+            issues.append("Face not clearly visible")
+            suggestions.append("Face the camera directly")
+        
+        return {
+            "acceptable": len(issues) == 0 and metrics.overall_score >= self.MIN_QUALITY_SCORE,
+            "score": metrics.overall_score,
+            "face_size_percent": metrics.face_size_ratio * 100,
+            "sharpness_percent": metrics.sharpness * 100,
+            "lighting_percent": metrics.lighting_uniformity * 100,
+            "confidence_percent": metrics.detection_confidence * 100,
+            "issues": issues,
+            "suggestions": suggestions
+        }

@@ -1,5 +1,6 @@
 /**
- * Face Enrollment Page - iPhone-style face enrollment with visual feedback
+ * Face Enrollment Page - Smart enrollment with real-time quality guidance
+ * Only captures when face quality meets requirements
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -7,16 +8,55 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
-import { Camera, CheckCircle, AlertCircle, Trash, Video, X, Loader2, Lightbulb, Sparkles } from 'lucide-react';
+import { Camera, CheckCircle, AlertCircle, Trash, Loader2, Sparkles, RefreshCw, X, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Circle } from 'lucide-react';
 import { useFaceEnrollment } from '@/hooks/useFaceEnrollment';
+import { aiApi } from '@/services';
 
-type FacePosition = 'no_face' | 'too_far' | 'too_close' | 'off_center' | 'good';
+// Types
+type EnrollmentPhase = 'idle' | 'scanning' | 'processing' | 'complete' | 'error';
+type QualityStatus = 'poor' | 'fair' | 'good' | 'excellent';
 
-interface FaceDetectionResult {
-  position: FacePosition;
-  message: string;
-  faceBox?: { x: number; y: number; width: number; height: number };
+interface QualityFeedback {
+  status: QualityStatus;
+  faceDetected: boolean;
+  faceSize: number; // percentage
+  brightness: number; // 0-100
+  centered: boolean;
+  issues: string[];
+  suggestions: string[];
+  readyToCapture: boolean;
 }
+
+interface PoseGuide {
+  id: string;
+  name: string;
+  instruction: string;
+  icon: React.ReactNode;
+  captured: boolean;
+  imageCount: number;
+}
+
+// Configuration - relaxed for better usability while maintaining accuracy
+const CONFIG = {
+  IMAGES_PER_POSE: 2,
+  MIN_QUALITY_HOLD_MS: 800, // Must hold good quality for 800ms before capture
+  MIN_FACE_SIZE_PERCENT: 5, // Lowered from 15% - allows faces at normal webcam distance
+  IDEAL_FACE_SIZE_PERCENT: 15, // Lowered from 25% - ideal but not required
+  MAX_FACE_SIZE_PERCENT: 95, // Allow larger faces, skin detection can be generous
+  MIN_BRIGHTNESS: 40, // Lowered from 50 - more tolerant of dim lighting
+  MAX_BRIGHTNESS: 230, // Raised from 220 - more tolerant of bright lighting
+  CENTER_TOLERANCE: 0.35, // Increased from 0.25 - more tolerant of off-center faces
+  TOTAL_POSES: 5,
+};
+
+// Pose definitions
+const INITIAL_POSES: PoseGuide[] = [
+  { id: 'front', name: 'Front', instruction: 'Look straight at the camera', icon: <Circle className="h-5 w-5" />, captured: false, imageCount: 0 },
+  { id: 'left', name: 'Left', instruction: 'Turn your head slightly LEFT', icon: <ArrowLeft className="h-5 w-5" />, captured: false, imageCount: 0 },
+  { id: 'right', name: 'Right', instruction: 'Turn your head slightly RIGHT', icon: <ArrowRight className="h-5 w-5" />, captured: false, imageCount: 0 },
+  { id: 'up', name: 'Up', instruction: 'Tilt your chin UP slightly', icon: <ArrowUp className="h-5 w-5" />, captured: false, imageCount: 0 },
+  { id: 'down', name: 'Down', instruction: 'Tilt your chin DOWN slightly', icon: <ArrowDown className="h-5 w-5" />, captured: false, imageCount: 0 },
+];
 
 export default function FaceEnrollment() {
   const { user } = useAuth();
@@ -26,31 +66,46 @@ export default function FaceEnrollment() {
     error: enrollmentError,
     success: enrollmentSuccess,
     checkEnrollmentStatus,
-    enrollFaceFromCamera,
     deleteEnrollment,
     clearMessages,
   } = useFaceEnrollment();
 
-  const [isCameraActive, setIsCameraActive] = useState(false);
+  // Core state
+  const [phase, setPhase] = useState<EnrollmentPhase>('idle');
+  const [poses, setPoses] = useState<PoseGuide[]>(INITIAL_POSES);
+  const [currentPoseIndex, setCurrentPoseIndex] = useState(0);
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [cameraError, setCameraError] = useState('');
 
-  // Face detection state
-  const [facePosition, setFacePosition] = useState<FacePosition>('no_face');
-  const [positionMessage, setPositionMessage] = useState('Position your face in the oval');
-  const [isAutoCapturing, setIsAutoCapturing] = useState(false);
-  const [autoCaptureProgress, setAutoCaptureProgress] = useState(0);
-  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
+  // Quality feedback state
+  const [quality, setQuality] = useState<QualityFeedback>({
+    status: 'poor',
+    faceDetected: false,
+    faceSize: 0,
+    brightness: 0,
+    centered: false,
+    issues: [],
+    suggestions: ['Position your face in the frame'],
+    readyToCapture: false,
+  });
+  const [qualityHoldProgress, setQualityHoldProgress] = useState(0);
+  const [captureFlash, setCaptureFlash] = useState(false);
 
+  // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const detectionIntervalRef = useRef<number | null>(null);
-  const goodPositionStartRef = useRef<number | null>(null);
+  const animationRef = useRef<number | null>(null);
+  const qualityHoldStartRef = useRef<number | null>(null);
+  const capturedImagesRef = useRef<string[]>([]);
+  const phaseRef = useRef<EnrollmentPhase>('idle');
+  const currentPoseIndexRef = useRef<number>(0);
+  const posesRef = useRef<PoseGuide[]>(INITIAL_POSES);
 
-  const AUTO_CAPTURE_DELAY = 1500; // 1.5 seconds of good position before capture
-  const MAX_CAPTURES = 5;
+  // Keep refs in sync
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { currentPoseIndexRef.current = currentPoseIndex; }, [currentPoseIndex]);
+  useEffect(() => { posesRef.current = poses; }, [poses]);
 
   // Check enrollment status on mount
   useEffect(() => {
@@ -60,524 +115,660 @@ export default function FaceEnrollment() {
   }, [user?.id, checkEnrollmentStatus]);
 
   const isEnrolled = enrollmentStatus?.is_enrolled || false;
+  const currentPose = poses[currentPoseIndex];
+  const totalImages = CONFIG.TOTAL_POSES * CONFIG.IMAGES_PER_POSE;
 
-  // Simple face detection using canvas analysis
-  const detectFace = useCallback((): FaceDetectionResult => {
-    if (!videoRef.current || !canvasRef.current) {
-      return { position: 'no_face', message: 'Camera not ready' };
-    }
-
+  // Analyze face quality from video frame
+  const analyzeQuality = useCallback((): QualityFeedback => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return { position: 'no_face', message: 'Canvas not ready' };
 
-    // Set canvas size to match video
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-
-    // Draw current frame
-    ctx.drawImage(video, 0, 0);
-
-    // Get image data for analysis
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-
-    // Simple skin tone detection to find face region
-    const skinPixels: { x: number; y: number }[] = [];
-
-    for (let y = 0; y < canvas.height; y += 4) {
-      for (let x = 0; x < canvas.width; x += 4) {
-        const i = (y * canvas.width + x) * 4;
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-
-        // Simple skin tone detection (works for various skin tones)
-        if (r > 60 && g > 40 && b > 20 &&
-          r > g && r > b &&
-          Math.abs(r - g) > 15 &&
-          r - b > 15) {
-          skinPixels.push({ x, y });
-        }
-      }
-    }
-
-    if (skinPixels.length < 100) {
-      return { position: 'no_face', message: 'No face detected - look at the camera' };
-    }
-
-    // Calculate bounding box of skin pixels
-    const xs = skinPixels.map(p => p.x);
-    const ys = skinPixels.map(p => p.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-
-    const faceWidth = maxX - minX;
-    const faceHeight = maxY - minY;
-    const faceCenterX = minX + faceWidth / 2;
-    const faceCenterY = minY + faceHeight / 2;
-
-    const canvasCenterX = canvas.width / 2;
-    const canvasCenterY = canvas.height / 2;
-
-    // Calculate ideal face size (should be about 30-50% of frame width)
-    const idealFaceWidth = canvas.width * 0.35;
-    const idealFaceHeight = canvas.height * 0.45;
-
-    const faceBox = { x: minX, y: minY, width: faceWidth, height: faceHeight };
-
-    // Check face size
-    if (faceWidth < idealFaceWidth * 0.6 || faceHeight < idealFaceHeight * 0.6) {
-      return { position: 'too_far', message: 'Move closer to the camera', faceBox };
-    }
-
-    if (faceWidth > idealFaceWidth * 1.5 || faceHeight > idealFaceHeight * 1.5) {
-      return { position: 'too_close', message: 'Move back from the camera', faceBox };
-    }
-
-    // Check face position (center)
-    const xOffset = Math.abs(faceCenterX - canvasCenterX) / canvas.width;
-    const yOffset = Math.abs(faceCenterY - canvasCenterY) / canvas.height;
-
-    if (xOffset > 0.15 || yOffset > 0.15) {
-      const direction = [];
-      if (faceCenterX < canvasCenterX - canvas.width * 0.1) direction.push('right');
-      if (faceCenterX > canvasCenterX + canvas.width * 0.1) direction.push('left');
-      if (faceCenterY < canvasCenterY - canvas.height * 0.1) direction.push('down');
-      if (faceCenterY > canvasCenterY + canvas.height * 0.1) direction.push('up');
+    if (!video || !canvas || video.readyState < 2) {
       return {
-        position: 'off_center',
-        message: `Move ${direction.join(' and ')} to center your face`,
-        faceBox
+        status: 'poor',
+        faceDetected: false,
+        faceSize: 0,
+        brightness: 0,
+        centered: false,
+        issues: ['Camera not ready'],
+        suggestions: ['Wait for camera to initialize'],
+        readyToCapture: false,
       };
     }
 
-    return { position: 'good', message: 'Perfect! Hold still...', faceBox };
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { status: 'poor', faceDetected: false, faceSize: 0, brightness: 0, centered: false, issues: ['Canvas error'], suggestions: [], readyToCapture: false };
+
+    const width = video.videoWidth || 640;
+    const height = video.videoHeight || 480;
+    canvas.width = width;
+    canvas.height = height;
+    ctx.drawImage(video, 0, 0);
+
+    // Analyze center region
+    const regionSize = Math.min(width, height) * 0.7;
+    const regionX = Math.floor((width - regionSize) / 2);
+    const regionY = Math.floor((height - regionSize) / 2);
+    const imageData = ctx.getImageData(regionX, regionY, Math.floor(regionSize), Math.floor(regionSize));
+    const data = imageData.data;
+
+    // Detect skin pixels using YCbCr
+    let skinPixelCount = 0;
+    let totalBrightness = 0;
+    let minSkinX = regionSize, maxSkinX = 0;
+    let minSkinY = regionSize, maxSkinY = 0;
+    const regionW = Math.floor(regionSize);
+    const regionH = Math.floor(regionSize);
+
+    for (let y = 0; y < regionH; y += 2) {
+      for (let x = 0; x < regionW; x += 2) {
+        const i = (y * regionW + x) * 4;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        totalBrightness += (r + g + b) / 3;
+
+        // YCbCr skin detection
+        const y_val = 0.299 * r + 0.587 * g + 0.114 * b;
+        const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+        const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+        const isSkin = y_val > 80 && cb > 77 && cb < 127 && cr > 133 && cr < 173;
+
+        if (isSkin) {
+          skinPixelCount++;
+          minSkinX = Math.min(minSkinX, x);
+          maxSkinX = Math.max(maxSkinX, x);
+          minSkinY = Math.min(minSkinY, y);
+          maxSkinY = Math.max(maxSkinY, y);
+        }
+      }
+    }
+
+    const totalPixels = (regionW * regionH) / 4;
+    const skinRatio = skinPixelCount / totalPixels;
+    const avgBrightness = totalBrightness / totalPixels;
+    const hasSkinPixels = skinPixelCount > 50;
+
+    // Calculate metrics
+    const faceWidth = hasSkinPixels ? maxSkinX - minSkinX : 0;
+    const faceHeight = hasSkinPixels ? maxSkinY - minSkinY : 0;
+    const faceSizeRatio = hasSkinPixels ? Math.max(faceWidth / regionW, faceHeight / regionH) : 0;
+    const faceSizePercent = faceSizeRatio * 100;
+    const faceCenterX = hasSkinPixels ? (minSkinX + maxSkinX) / 2 : regionW / 2;
+    const faceCenterY = hasSkinPixels ? (minSkinY + maxSkinY) / 2 : regionH / 2;
+    const centerOffsetX = Math.abs(faceCenterX - regionW / 2) / (regionW / 2);
+    const centerOffsetY = Math.abs(faceCenterY - regionH / 2) / (regionH / 2);
+    const isCentered = centerOffsetX < CONFIG.CENTER_TOLERANCE && centerOffsetY < CONFIG.CENTER_TOLERANCE;
+
+    // Build feedback
+    const issues: string[] = [];
+    const suggestions: string[] = [];
+    let faceDetected = false;
+
+    if (!hasSkinPixels || skinRatio < 0.02) {
+      issues.push('No face detected');
+      suggestions.push('Position your face in the oval guide');
+    } else {
+      faceDetected = true;
+
+      if (faceSizePercent < CONFIG.MIN_FACE_SIZE_PERCENT) {
+        issues.push('Face too far');
+        suggestions.push(`Move closer (${faceSizePercent.toFixed(0)}% → ${CONFIG.MIN_FACE_SIZE_PERCENT}% needed)`);
+      } else if (faceSizePercent > CONFIG.MAX_FACE_SIZE_PERCENT) {
+        issues.push('Face too close');
+        suggestions.push('Move back slightly');
+      }
+
+      if (!isCentered) {
+        issues.push('Face not centered');
+        if (centerOffsetX > CONFIG.CENTER_TOLERANCE) {
+          suggestions.push(faceCenterX < regionW / 2 ? 'Move right' : 'Move left');
+        }
+        if (centerOffsetY > CONFIG.CENTER_TOLERANCE) {
+          suggestions.push(faceCenterY < regionH / 2 ? 'Move down' : 'Move up');
+        }
+      }
+
+      if (avgBrightness < CONFIG.MIN_BRIGHTNESS) {
+        issues.push('Too dark');
+        suggestions.push('Improve lighting or face a light source');
+      } else if (avgBrightness > CONFIG.MAX_BRIGHTNESS) {
+        issues.push('Too bright');
+        suggestions.push('Reduce lighting or move away from direct light');
+      }
+    }
+
+    // Determine quality status
+    let status: QualityStatus = 'poor';
+    const readyToCapture = faceDetected &&
+      faceSizePercent >= CONFIG.MIN_FACE_SIZE_PERCENT &&
+      faceSizePercent <= CONFIG.MAX_FACE_SIZE_PERCENT &&
+      isCentered &&
+      avgBrightness >= CONFIG.MIN_BRIGHTNESS &&
+      avgBrightness <= CONFIG.MAX_BRIGHTNESS;
+
+    if (readyToCapture) {
+      status = faceSizePercent >= CONFIG.IDEAL_FACE_SIZE_PERCENT ? 'excellent' : 'good';
+    } else if (faceDetected && issues.length <= 2) {
+      status = 'fair';
+    }
+
+    return {
+      status,
+      faceDetected,
+      faceSize: faceSizePercent,
+      brightness: avgBrightness,
+      centered: isCentered,
+      issues,
+      suggestions: suggestions.length > 0 ? suggestions : ['Hold still...'],
+      readyToCapture,
+    };
   }, []);
 
-  // Run face detection loop
-  useEffect(() => {
-    if (!isCameraActive) {
-      if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
-        detectionIntervalRef.current = null;
-      }
-      return;
+  // Capture frame
+  const captureFrame = useCallback((): string | null => {
+    const video = videoRef.current;
+    if (!video) return null;
+
+    const captureCanvas = document.createElement('canvas');
+    captureCanvas.width = video.videoWidth;
+    captureCanvas.height = video.videoHeight;
+    const ctx = captureCanvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.translate(captureCanvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0);
+
+    return captureCanvas.toDataURL('image/jpeg', 0.92);
+  }, []);
+
+  // Stop camera
+  const stopCamera = useCallback(() => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
     }
-
-    detectionIntervalRef.current = window.setInterval(() => {
-      const result = detectFace();
-      setFacePosition(result.position);
-      setPositionMessage(result.message);
-
-      // Handle auto-capture logic
-      if (result.position === 'good' && capturedImages.length < MAX_CAPTURES) {
-        if (!goodPositionStartRef.current) {
-          goodPositionStartRef.current = Date.now();
-          setIsAutoCapturing(true);
-        }
-
-        const elapsed = Date.now() - goodPositionStartRef.current;
-        setAutoCaptureProgress((elapsed / AUTO_CAPTURE_DELAY) * 100);
-
-        if (elapsed >= AUTO_CAPTURE_DELAY) {
-          // Auto-capture
-          captureImage();
-          goodPositionStartRef.current = null;
-          setAutoCaptureProgress(0);
-          setIsAutoCapturing(false);
-        }
-      } else {
-        goodPositionStartRef.current = null;
-        setAutoCaptureProgress(0);
-        setIsAutoCapturing(false);
-      }
-    }, 100);
-
-    return () => {
-      if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current);
-      }
-    };
-  }, [isCameraActive, detectFace, capturedImages.length]);
-
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: 640, height: 480 },
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      streamRef.current = stream;
-      setIsCameraActive(true);
-      setCameraError('');
-      setFacePosition('no_face');
-      setPositionMessage('Position your face in the oval');
-    } catch {
-      setCameraError('Could not access camera. Please check permissions.');
-    }
-  };
-
-  const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setIsCameraActive(false);
-    goodPositionStartRef.current = null;
-    setAutoCaptureProgress(0);
-    setIsAutoCapturing(false);
-  };
+  }, []);
 
-  const captureImage = useCallback(() => {
-    if (!videoRef.current || capturedImages.length >= MAX_CAPTURES) return;
-
-    // Trigger flash effect
-    const flashEl = document.querySelector('.capture-flash');
-    if (flashEl) {
-      flashEl.classList.add('capture-flash-active');
-      setTimeout(() => flashEl.classList.remove('capture-flash-active'), 300);
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-      ctx.drawImage(videoRef.current, 0, 0);
-    }
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-    setCapturedImages(prev => [...prev, dataUrl]);
-
-    // Show brief success feedback
-    setShowSuccessAnimation(true);
-    setTimeout(() => setShowSuccessAnimation(false), 500);
-  }, [capturedImages.length]);
-
-  const removeImage = (index: number) => {
-    setCapturedImages(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const submitEnrollment = async () => {
-    if (capturedImages.length === 0 || !user?.id) return;
-    setIsSubmitting(true);
-    clearMessages();
+  // Submit enrollment
+  const submitEnrollment = useCallback(async () => {
+    setPhase('processing');
+    stopCamera();
 
     try {
-      for (const imageData of capturedImages) {
-        await enrollFaceFromCamera(user.id, imageData);
+      if (!user?.id) throw new Error('User not found');
+
+      const files = await Promise.all(
+        capturedImagesRef.current.map(async (dataUrl, index) => {
+          const res = await fetch(dataUrl);
+          const blob = await res.blob();
+          return new File([blob], `face_${index}.jpg`, { type: 'image/jpeg' });
+        })
+      );
+
+      const result = await aiApi.enrollMultiple(user.id, files);
+
+      if (result.success) {
+        setPhase('complete');
+        checkEnrollmentStatus(user.id);
+      } else {
+        let errorMessage = result.message || 'Enrollment failed';
+        if (errorMessage.includes('Image 0:') && errorMessage.includes('Image 1:')) {
+          const match = errorMessage.match(/Image \d+: ([^;]+)/);
+          if (match) {
+            errorMessage = `${match[1].trim()}\n\nPlease try again with better positioning.`;
+          }
+        }
+        setCameraError(errorMessage);
+        setPhase('error');
       }
-      setCapturedImages([]);
-      stopCamera();
-      await checkEnrollmentStatus(user.id);
+    } catch (err: unknown) {
+      console.error('[FaceEnrollment] Enrollment error:', err);
+      let errorMessage = 'Enrollment failed. Please try again.';
+      if (typeof err === 'object' && err !== null && 'response' in err) {
+        const axiosErr = err as { response?: { status?: number; data?: { detail?: string; message?: string } } };
+        if (axiosErr.response?.status === 401) {
+          errorMessage = 'Session expired. Please log in again.';
+        } else if (axiosErr.response?.data?.detail) {
+          errorMessage = axiosErr.response.data.detail;
+        }
+      }
+      setCameraError(errorMessage);
+      setPhase('error');
+    }
+  }, [user?.id, stopCamera, checkEnrollmentStatus]);
+
+  // Main analysis loop
+  const runAnalysisLoop = useCallback(() => {
+    const loop = () => {
+      if (phaseRef.current !== 'scanning') return;
+
+      const qualityResult = analyzeQuality();
+      setQuality(qualityResult);
+
+      if (qualityResult.readyToCapture) {
+        // Start or continue quality hold timer
+        if (!qualityHoldStartRef.current) {
+          qualityHoldStartRef.current = Date.now();
+        }
+
+        const holdDuration = Date.now() - qualityHoldStartRef.current;
+        const progress = Math.min(100, (holdDuration / CONFIG.MIN_QUALITY_HOLD_MS) * 100);
+        setQualityHoldProgress(progress);
+
+        // Capture when hold time reached
+        if (holdDuration >= CONFIG.MIN_QUALITY_HOLD_MS) {
+          const image = captureFrame();
+          if (image) {
+            // Flash effect
+            setCaptureFlash(true);
+            setTimeout(() => setCaptureFlash(false), 150);
+
+            capturedImagesRef.current.push(image);
+            setCapturedImages([...capturedImagesRef.current]);
+
+            // Update pose
+            const poseIdx = currentPoseIndexRef.current;
+            const updatedPoses = [...posesRef.current];
+            updatedPoses[poseIdx] = {
+              ...updatedPoses[poseIdx],
+              imageCount: updatedPoses[poseIdx].imageCount + 1,
+              captured: updatedPoses[poseIdx].imageCount + 1 >= CONFIG.IMAGES_PER_POSE,
+            };
+            setPoses(updatedPoses);
+
+            // Reset hold timer
+            qualityHoldStartRef.current = null;
+            setQualityHoldProgress(0);
+
+            // Check if pose complete
+            if (updatedPoses[poseIdx].imageCount >= CONFIG.IMAGES_PER_POSE) {
+              const nextPoseIndex = poseIdx + 1;
+              if (nextPoseIndex < CONFIG.TOTAL_POSES) {
+                setCurrentPoseIndex(nextPoseIndex);
+              } else {
+                // All poses captured
+                submitEnrollment();
+                return;
+              }
+            }
+          }
+        }
+      } else {
+        // Reset hold timer if quality drops
+        qualityHoldStartRef.current = null;
+        setQualityHoldProgress(0);
+      }
+
+      animationRef.current = requestAnimationFrame(loop);
+    };
+
+    animationRef.current = requestAnimationFrame(loop);
+  }, [analyzeQuality, captureFrame, submitEnrollment]);
+
+  // Start camera
+  const startCamera = useCallback(async () => {
+    setCameraError('');
+    phaseRef.current = 'scanning';
+    setPhase('scanning');
+    currentPoseIndexRef.current = 0;
+    setCurrentPoseIndex(0);
+    setPoses(INITIAL_POSES);
+    posesRef.current = INITIAL_POSES;
+    setCapturedImages([]);
+    capturedImagesRef.current = [];
+    setQualityHoldProgress(0);
+    qualityHoldStartRef.current = null;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+      streamRef.current = stream;
+
+      const video = videoRef.current;
+      if (!video) throw new Error('Video element not found');
+
+      video.srcObject = stream;
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Camera timeout')), 5000);
+        const onReady = () => {
+          clearTimeout(timeout);
+          video.removeEventListener('canplay', onReady);
+          resolve();
+        };
+        if (video.readyState >= 3) {
+          clearTimeout(timeout);
+          resolve();
+        } else {
+          video.addEventListener('canplay', onReady);
+        }
+      });
+
+      await video.play();
+      runAnalysisLoop();
     } catch (err) {
-      console.error('Enrollment failed:', err);
-    } finally {
-      setIsSubmitting(false);
+      console.error('[FaceEnrollment] Camera error:', err);
+      setCameraError(err instanceof Error ? err.message : 'Failed to start camera');
+      phaseRef.current = 'error';
+      setPhase('error');
+      stopCamera();
+    }
+  }, [stopCamera, runAnalysisLoop]);
+
+  // Cleanup
+  useEffect(() => {
+    return () => stopCamera();
+  }, [stopCamera]);
+
+  // Get quality color
+  const getQualityColor = () => {
+    switch (quality.status) {
+      case 'excellent': return 'rgb(34, 197, 94)'; // green
+      case 'good': return 'rgb(132, 204, 22)'; // lime
+      case 'fair': return 'rgb(234, 179, 8)'; // yellow
+      default: return 'rgb(239, 68, 68)'; // red
     }
   };
 
-  const handleDeleteEnrollment = async () => {
+  const handleDelete = async () => {
     if (!user?.id) return;
-    if (!confirm('Are you sure you want to delete your face enrollment?')) return;
-
     await deleteEnrollment(user.id);
-    await checkEnrollmentStatus(user.id);
   };
-
-  // Get oval color based on face position
-  const getOvalColor = () => {
-    switch (facePosition) {
-      case 'good': return 'border-green-500 shadow-green-500/50';
-      case 'off_center': return 'border-yellow-500 shadow-yellow-500/50';
-      case 'too_far':
-      case 'too_close': return 'border-orange-500 shadow-orange-500/50';
-      default: return 'border-red-500 shadow-red-500/50';
-    }
-  };
-
-  const getStatusBgColor = () => {
-    switch (facePosition) {
-      case 'good': return 'bg-green-500/90';
-      case 'off_center': return 'bg-yellow-500/90';
-      case 'too_far':
-      case 'too_close': return 'bg-orange-500/90';
-      default: return 'bg-red-500/90';
-    }
-  };
-
-  // Only students and admins can access
-  if (user?.role === 'mentor') {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
-            <p className="text-muted-foreground">
-              Face enrollment is only available for students and administrators.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-3xl font-bold">Face Enrollment</h1>
-        <p className="text-muted-foreground">Register your face for automatic attendance recognition</p>
-      </div>
-
-      {/* Alerts */}
-      {enrollmentSuccess && (
-        <Alert className="bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800">
-          <CheckCircle className="h-4 w-4 text-green-600" />
-          <AlertTitle>Success</AlertTitle>
-          <AlertDescription>{enrollmentSuccess}</AlertDescription>
-        </Alert>
-      )}
-      {(enrollmentError || cameraError) && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{enrollmentError || cameraError}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Enrollment Status */}
-      <Card className={isEnrolled ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20' : ''}>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Enrollment Status</CardTitle>
-            {isEnrolled && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive"
-                onClick={handleDeleteEnrollment}
-                disabled={enrollmentLoading}
-              >
-                {enrollmentLoading ? (
-                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                ) : (
-                  <Trash className="h-4 w-4 mr-1" />
-                )}
-                Delete
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {isEnrolled ? (
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="font-medium text-green-700 dark:text-green-400">Enrolled</p>
-                <p className="text-sm text-muted-foreground">
-                  {enrollmentStatus?.encodings_count || 0} face encoding(s) registered
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-yellow-100 dark:bg-yellow-900 flex items-center justify-center">
-                <AlertCircle className="h-5 w-5 text-yellow-600" />
-              </div>
-              <div>
-                <p className="font-medium text-yellow-700 dark:text-yellow-400">Not Enrolled</p>
-                <p className="text-sm text-muted-foreground">Please capture face images below</p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Camera Capture - iPhone Style */}
+    <div className="container mx-auto p-6 max-w-2xl">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5" />
-            Face Capture
+            Face Enrollment
           </CardTitle>
           <CardDescription>
-            Position your face in the oval - images capture automatically when aligned
+            {isEnrolled
+              ? 'Your face is enrolled. You can re-enroll for better accuracy.'
+              : 'Enroll your face for automatic attendance tracking.'}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Progress indicator */}
-          {isCameraActive && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="font-medium">Capture Progress</span>
-                <span className="text-muted-foreground">{capturedImages.length}/{MAX_CAPTURES} images</span>
-              </div>
-              <Progress value={(capturedImages.length / MAX_CAPTURES) * 100} className="h-2" />
+        <CardContent className="space-y-6">
+          {/* Alerts */}
+          {enrollmentError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{enrollmentError}</AlertDescription>
+            </Alert>
+          )}
+          {enrollmentSuccess && (
+            <Alert className="border-green-500 bg-green-50 dark:bg-green-950">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <AlertTitle className="text-green-600">Success</AlertTitle>
+              <AlertDescription className="text-green-600">{enrollmentSuccess}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Enrollment status */}
+          {isEnrolled && phase === 'idle' && (
+            <div className="flex items-center gap-2 p-4 bg-green-50 dark:bg-green-950 rounded-lg">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              <span className="text-green-700 dark:text-green-400">
+                Face enrolled ({enrollmentStatus?.encodings_count || 0} encodings)
+              </span>
             </div>
           )}
 
-          {/* Camera Preview */}
-          <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-            {/* Hidden canvas for face detection */}
+          {/* Camera view */}
+          <div className="relative aspect-[4/3] bg-black rounded-xl overflow-hidden">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`absolute inset-0 w-full h-full object-cover mirror ${phase !== 'scanning' ? 'hidden' : ''}`}
+              style={{ transform: 'scaleX(-1)' }}
+            />
             <canvas ref={canvasRef} className="hidden" />
 
-            {isCameraActive ? (
-              <>
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover mirror" />
+            {/* Capture flash */}
+            {captureFlash && (
+              <div className="absolute inset-0 bg-white/50 z-20 animate-pulse" />
+            )}
 
-                {/* Face guide overlay with dynamic color */}
+            {/* Idle state */}
+            {phase === 'idle' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-gradient-to-b from-gray-800 to-gray-900">
+                <Camera className="h-16 w-16 mb-4 opacity-50" />
+                <p className="text-lg opacity-70 mb-2">Ready to enroll</p>
+                <p className="text-sm opacity-50">Click Start to begin face enrollment</p>
+              </div>
+            )}
+
+            {/* Scanning overlay */}
+            {phase === 'scanning' && (
+              <>
+                {/* Face guide oval */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className={`relative w-48 h-64 border-4 rounded-[50%] transition-all duration-300 shadow-lg ${getOvalColor()}`}>
-                    {/* Auto-capture progress ring */}
-                    {isAutoCapturing && (
-                      <svg className="absolute -inset-2 w-[calc(100%+16px)] h-[calc(100%+16px)]" viewBox="0 0 100 130">
+                  <div className="relative w-52 h-64">
+                    {/* Oval guide */}
+                    <div
+                      className="absolute inset-0 rounded-[50%] border-4 transition-colors duration-300"
+                      style={{ borderColor: getQualityColor() }}
+                    />
+                    {/* Progress ring overlay */}
+                    {qualityHoldProgress > 0 && (
+                      <svg className="absolute inset-0 w-full h-full -rotate-90">
                         <ellipse
-                          cx="50"
-                          cy="65"
-                          rx="48"
-                          ry="62"
+                          cx="50%"
+                          cy="50%"
+                          rx="48%"
+                          ry="48%"
                           fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                          strokeDasharray={`${autoCaptureProgress * 3.5} 350`}
-                          className="text-green-400 transition-all"
-                          transform="rotate(-90 50 65)"
+                          stroke={getQualityColor()}
+                          strokeWidth="6"
+                          strokeLinecap="round"
+                          strokeDasharray={`${qualityHoldProgress * 3.14} 314`}
+                          className="transition-all duration-100"
                         />
                       </svg>
                     )}
+                  </div>
+                </div>
 
-                    {/* Success checkmark animation */}
-                    {showSuccessAnimation && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-green-500/30 rounded-[50%] animate-pulse">
-                        <CheckCircle className="h-16 w-16 text-green-500" />
+                {/* Pose progress indicators */}
+                <div className="absolute top-4 left-0 right-0 flex justify-center gap-2">
+                  {poses.map((pose, idx) => (
+                    <div
+                      key={pose.id}
+                      className={`flex items-center justify-center w-10 h-10 rounded-full transition-all ${pose.captured
+                        ? 'bg-green-500 text-white'
+                        : idx === currentPoseIndex
+                          ? 'bg-white text-black scale-110 shadow-lg'
+                          : 'bg-white/30 text-white/70'
+                        }`}
+                      title={pose.name}
+                    >
+                      {pose.captured ? (
+                        <CheckCircle className="h-5 w-5" />
+                      ) : (
+                        pose.icon
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Quality feedback panel */}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-4 pt-12">
+                  {/* Current pose instruction */}
+                  <div className="text-center mb-3">
+                    <div className="flex items-center justify-center gap-2 text-white mb-1">
+                      {currentPose?.icon}
+                      <span className="text-lg font-medium">{currentPose?.instruction}</span>
+                    </div>
+                    <p className="text-white/60 text-sm">
+                      {capturedImages.length} / {totalImages} captured • Pose {currentPoseIndex + 1}/{CONFIG.TOTAL_POSES}
+                    </p>
+                  </div>
+
+                  {/* Quality status */}
+                  <div className="bg-black/50 rounded-lg p-3 space-y-2">
+                    {/* Status bar */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-white/80 text-sm">Quality:</span>
+                      <span
+                        className="text-sm font-medium px-2 py-0.5 rounded"
+                        style={{
+                          backgroundColor: getQualityColor(),
+                          color: quality.status === 'poor' ? 'white' : 'black'
+                        }}
+                      >
+                        {quality.status.toUpperCase()}
+                      </span>
+                    </div>
+
+                    {/* Face size indicator */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-white/60">
+                        <span>Face Size</span>
+                        <span>{quality.faceSize.toFixed(0)}%</span>
+                      </div>
+                      <Progress
+                        value={Math.min(100, (quality.faceSize / CONFIG.IDEAL_FACE_SIZE_PERCENT) * 100)}
+                        className="h-1.5"
+                      />
+                    </div>
+
+                    {/* Issues and suggestions */}
+                    {quality.issues.length > 0 && (
+                      <div className="text-yellow-400 text-sm flex items-start gap-2">
+                        <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                        <span>{quality.suggestions[0]}</span>
+                      </div>
+                    )}
+
+                    {/* Ready indicator */}
+                    {quality.readyToCapture && (
+                      <div className="text-green-400 text-sm flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4" />
+                        <span>Hold still... {Math.round(qualityHoldProgress)}%</span>
                       </div>
                     )}
                   </div>
-
-                  {/* Dark overlay outside oval */}
-                  <div className="absolute inset-0 bg-black/40" style={{
-                    maskImage: 'radial-gradient(ellipse 96px 128px at center, transparent 100%, black 100%)',
-                    WebkitMaskImage: 'radial-gradient(ellipse 96px 128px at center, transparent 100%, black 100%)',
-                  }} />
                 </div>
-
-                {/* Position feedback message */}
-                <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full text-white text-sm font-medium transition-colors ${getStatusBgColor()}`}>
-                  {positionMessage}
-                </div>
-
-                {/* Capture flash effect */}
-                <div className="absolute inset-0 bg-white opacity-0 transition-opacity duration-100 capture-flash pointer-events-none" />
               </>
-            ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
-                <Camera className="h-16 w-16 text-muted-foreground mb-4" />
-                <p className="text-muted-foreground mb-4">Camera not active</p>
-                <Button size="lg" onClick={startCamera}>
-                  <Video className="h-5 w-5 mr-2" />
-                  Start Camera
-                </Button>
+            )}
+
+            {/* Processing */}
+            {phase === 'processing' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white">
+                <Loader2 className="h-12 w-12 animate-spin mb-4" />
+                <p className="text-lg">Processing your enrollment...</p>
+                <p className="text-sm text-white/60 mt-2">This may take a moment</p>
+              </div>
+            )}
+
+            {/* Complete */}
+            {phase === 'complete' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-green-800 to-green-900 text-white">
+                <Sparkles className="h-16 w-16 mb-4 text-green-300" />
+                <p className="text-xl font-semibold">Enrollment Complete!</p>
+                <p className="text-sm text-green-200 mt-2">Your face has been registered successfully</p>
+              </div>
+            )}
+
+            {/* Error */}
+            {phase === 'error' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-red-800 to-red-900 text-white p-6">
+                <AlertCircle className="h-16 w-16 mb-4 text-red-300" />
+                <p className="text-xl font-semibold mb-2">Enrollment Failed</p>
+                <p className="text-sm text-red-200 text-center max-w-md whitespace-pre-line">{cameraError}</p>
+                <div className="mt-6 flex gap-3">
+                  <Button
+                    onClick={() => {
+                      setCameraError('');
+                      setPhase('idle');
+                      clearMessages();
+                    }}
+                    variant="outline"
+                    className="bg-white/10 border-white/30 hover:bg-white/20 text-white"
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setCameraError('');
+                      clearMessages();
+                      startCamera();
+                    }}
+                    className="bg-white text-red-900 hover:bg-white/90"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Try Again
+                  </Button>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Captured Images */}
-          {capturedImages.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-green-500" />
-                Captured Images
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                {capturedImages.map((img, i) => (
-                  <div key={i} className="relative h-20 w-20 rounded-lg overflow-hidden border-2 border-green-500/50 shadow-sm">
-                    <img src={img} alt={`Capture ${i + 1}`} className="w-full h-full object-cover" />
-                    <button
-                      onClick={() => removeImage(i)}
-                      className="absolute top-0 right-0 p-1 bg-destructive text-white rounded-bl hover:bg-destructive/90"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs text-center py-0.5">
-                      #{i + 1}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex flex-wrap gap-2">
-            {isCameraActive && (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={captureImage}
-                  disabled={capturedImages.length >= MAX_CAPTURES}
-                >
-                  <Camera className="h-4 w-4 mr-2" />
-                  Manual Capture
-                </Button>
-                <Button variant="outline" onClick={stopCamera}>
-                  Stop Camera
-                </Button>
-              </>
+          {/* Action buttons */}
+          <div className="flex gap-3">
+            {phase === 'idle' && (
+              <Button onClick={startCamera} className="flex-1" disabled={enrollmentLoading}>
+                <Camera className="h-4 w-4 mr-2" />
+                {isEnrolled ? 'Re-enroll Face' : 'Start Enrollment'}
+              </Button>
             )}
-            {capturedImages.length > 0 && (
-              <Button
-                className="ml-auto"
-                onClick={submitEnrollment}
-                disabled={isSubmitting || enrollmentLoading}
-              >
-                {(isSubmitting || enrollmentLoading) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {phase === 'scanning' && (
+              <Button onClick={() => { stopCamera(); setPhase('idle'); }} variant="outline" className="flex-1">
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+            )}
+            {phase === 'complete' && (
+              <Button onClick={() => { setPhase('idle'); clearMessages(); }} className="flex-1">
                 <CheckCircle className="h-4 w-4 mr-2" />
-                Complete Enrollment ({capturedImages.length} images)
+                Done
+              </Button>
+            )}
+            {isEnrolled && phase === 'idle' && (
+              <Button onClick={handleDelete} variant="destructive" disabled={enrollmentLoading}>
+                <Trash className="h-4 w-4 mr-2" />
+                Delete
               </Button>
             )}
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Tips */}
-      <Card className="bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Lightbulb className="h-5 w-5 text-blue-600" />
-            Tips for Best Results
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul className="space-y-2 text-sm">
-            <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-              <span>Ensure good, even lighting on your face</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-              <span>Look directly at the camera and center your face in the oval</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-              <span>Images capture automatically when your face is properly positioned</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-              <span>Capture 3-5 images from slightly different angles for best accuracy</span>
-            </li>
-          </ul>
+          {/* Instructions */}
+          {phase === 'idle' && (
+            <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+              <p className="font-medium text-sm">Tips for best results:</p>
+              <ul className="text-sm text-muted-foreground space-y-2">
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Position your face to fill the oval guide (15-25% of frame)</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Ensure good, even lighting on your face</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Hold still when the guide turns green</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Follow the pose prompts for each angle</span>
+                </li>
+              </ul>
+              <p className="text-xs text-muted-foreground mt-2">
+                The system will automatically capture when quality is good enough.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

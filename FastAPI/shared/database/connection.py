@@ -89,6 +89,8 @@ def get_db_session() -> Session:
     db_connection = DatabaseConnection()
     session = db_connection.create_session()
     try:
+        # Ensure we start with a clean transaction state
+        session.rollback()
         yield session
         session.commit()
     except SQLAlchemyError as e:
