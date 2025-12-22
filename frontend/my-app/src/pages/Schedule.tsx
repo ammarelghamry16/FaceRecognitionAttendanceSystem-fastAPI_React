@@ -7,10 +7,10 @@ import { classApi } from '@/services/scheduleService';
 import type { Class } from '@/services/scheduleService';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, Clock, MapPin, BookOpen } from 'lucide-react';
+import { Loader2, Clock, MapPin, BookOpen, LayoutGrid, List } from 'lucide-react';
 
-const DAYS_OF_WEEK = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'saturday'];
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Sat'];
+const DAYS_OF_WEEK = ['saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday'];
+const DAY_LABELS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
 
 export default function Schedule() {
   const { user } = useAuth();
@@ -18,6 +18,7 @@ export default function Schedule() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'table' | 'list'>('table');
 
   // Fetch schedule based on role
   const fetchSchedule = async () => {
@@ -62,9 +63,10 @@ export default function Schedule() {
   // Get unique time slots for table view
   const allTimeSlots = [...new Set(classes.map(c => c.schedule_time))].sort();
 
-  // Get today's day
-  const todayIndex = new Date().getDay();
-  const todayName = DAYS_OF_WEEK[todayIndex] || 'sunday';
+  // Get today's day name
+  const jsDay = new Date().getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const todayName = dayNames[jsDay];
 
   if (isLoading) {
     return (
@@ -74,13 +76,49 @@ export default function Schedule() {
     );
   }
 
-  // Student view - Weekly table
+  // Student view - Table or List view with toggle
   if (user?.role === 'student') {
+    // Filter for list view
+    const filteredClasses = selectedDay 
+      ? classes.filter(c => c.day_of_week === selectedDay)
+      : classes;
+
+    const filteredByDay = filteredClasses.reduce((acc, cls) => {
+      const day = cls.day_of_week;
+      if (!acc[day]) acc[day] = [];
+      acc[day].push(cls);
+      return acc;
+    }, {} as Record<string, Class[]>);
+
+    Object.keys(filteredByDay).forEach((day) => {
+      filteredByDay[day].sort((a, b) => a.schedule_time.localeCompare(b.schedule_time));
+    });
+
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">My Schedule</h1>
-          <p className="text-muted-foreground">Your weekly class schedule</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">My Schedule</h1>
+            <p className="text-muted-foreground">Your weekly class schedule</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={viewMode === 'table' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('table')}
+            >
+              <LayoutGrid className="h-4 w-4 mr-1" />
+              Table
+            </Button>
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('list')}
+            >
+              <List className="h-4 w-4 mr-1" />
+              List
+            </Button>
+          </div>
         </div>
 
         {error && (
@@ -95,74 +133,148 @@ export default function Schedule() {
               You are not enrolled in any classes yet.
             </CardContent>
           </Card>
-        ) : (
-          <Card>
-            <CardContent className="p-0 overflow-x-auto">
-              <table className="w-full border-collapse min-w-[600px]">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="p-3 text-left font-medium text-sm w-20">Time</th>
-                    {DAYS_OF_WEEK.map((day, idx) => (
-                      <th 
-                        key={day} 
-                        className={`p-3 text-center font-medium text-sm ${day === todayName ? 'bg-primary/10' : ''}`}
-                      >
-                        {DAY_LABELS[idx]}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {allTimeSlots.map((time) => (
-                    <tr key={time} className="border-b">
-                      <td className="p-3 text-sm font-medium text-muted-foreground whitespace-nowrap">
-                        {time}
-                      </td>
-                      {DAYS_OF_WEEK.map((day) => {
-                        const classForSlot = classesByDay[day]?.find(c => c.schedule_time === time);
-                        const isToday = day === todayName;
-                        return (
-                          <td 
-                            key={day} 
-                            className={`p-2 text-center ${isToday ? 'bg-primary/5' : ''}`}
-                          >
-                            {classForSlot ? (
-                              <div className={`p-2 rounded-lg text-xs ${
-                                classForSlot.state === 'active' 
-                                  ? 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700' 
-                                  : 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'
-                              }`}>
-                                <p className="font-medium truncate">{classForSlot.name}</p>
-                                <p className="text-muted-foreground flex items-center justify-center gap-1 mt-1">
-                                  <MapPin className="h-3 w-3" />
-                                  {classForSlot.room_number}
-                                </p>
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground/30">-</span>
-                            )}
-                          </td>
-                        );
-                      })}
+        ) : viewMode === 'table' ? (
+          <>
+            <Card>
+              <CardContent className="p-0 overflow-x-auto">
+                <table className="w-full border-collapse min-w-[700px] table-fixed">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="p-3 text-left font-medium text-sm w-[80px]">Time</th>
+                      {DAYS_OF_WEEK.map((day, idx) => (
+                        <th 
+                          key={day} 
+                          className={`p-3 text-center font-medium text-sm w-[calc((100%-80px)/6)] ${day === todayName ? 'bg-primary/10' : ''}`}
+                        >
+                          {DAY_LABELS[idx]}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
-        )}
+                  </thead>
+                  <tbody>
+                    {allTimeSlots.map((time) => (
+                      <tr key={time} className="border-b">
+                        <td className="p-3 text-sm font-medium text-muted-foreground whitespace-nowrap w-[80px]">
+                          {time}
+                        </td>
+                        {DAYS_OF_WEEK.map((day) => {
+                          const classForSlot = classesByDay[day]?.find(c => c.schedule_time === time);
+                          const isToday = day === todayName;
+                          return (
+                            <td 
+                              key={day} 
+                              className={`p-2 text-center align-top ${isToday ? 'bg-primary/5' : ''}`}
+                            >
+                              {classForSlot ? (
+                                <div className={`p-2 rounded-lg text-xs ${
+                                  classForSlot.state === 'active' 
+                                    ? 'bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700' 
+                                    : 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'
+                                }`}>
+                                  <p className="font-medium truncate">{classForSlot.name}</p>
+                                  <p className="text-muted-foreground flex items-center justify-center gap-1 mt-1">
+                                    <MapPin className="h-3 w-3" />
+                                    {classForSlot.room_number}
+                                  </p>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground/30">-</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
 
-        {/* Legend */}
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700"></div>
-            <span>Scheduled</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700"></div>
-            <span>Active Session</span>
-          </div>
-        </div>
+            {/* Legend */}
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700"></div>
+                <span>Scheduled</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700"></div>
+                <span>Active Session</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Day Filter for List View */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={selectedDay === null ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setSelectedDay(null)}
+              >
+                All Days
+              </Button>
+              {DAYS_OF_WEEK.map((day, idx) => (
+                <Button
+                  key={day}
+                  variant={selectedDay === day ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSelectedDay(day)}
+                >
+                  {DAY_LABELS[idx]}
+                </Button>
+              ))}
+            </div>
+
+            {/* List View */}
+            <div className="space-y-6">
+              {DAYS_OF_WEEK.filter((day) => filteredByDay[day]?.length > 0).map((day, idx) => (
+                <div key={day}>
+                  <h2 className="text-lg font-semibold mb-3 sticky top-0 bg-background py-2 z-10 border-b">
+                    {DAY_LABELS[idx]} - <span className="capitalize">{day}</span>
+                  </h2>
+                  <div className="grid gap-3">
+                    {filteredByDay[day].map((cls) => (
+                      <Card key={cls.id} className="hover:shadow-md transition-shadow">
+                        <CardContent className="py-4">
+                          <div className="flex items-start justify-between">
+                            <div className="space-y-1">
+                              <h3 className="font-medium">{cls.name}</h3>
+                              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-4 w-4" />
+                                  {cls.schedule_time}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-4 w-4" />
+                                  Room {cls.room_number}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <BookOpen className="h-4 w-4" />
+                                  {cls.course?.name || 'Course'}
+                                </span>
+                              </div>
+                            </div>
+                            <span
+                              className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                cls.state === 'active'
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                                  : cls.state === 'completed'
+                                    ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+                              }`}
+                            >
+                              {cls.state}
+                            </span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     );
   }

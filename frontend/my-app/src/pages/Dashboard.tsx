@@ -352,12 +352,22 @@ export default function Dashboard() {
                   </Button>
                 </>
               )}
-              {(user?.role === 'mentor' || user?.role === 'admin') && (
+              {user?.role === 'mentor' && (
                 <>
                   <Button variant="outline" className="w-full justify-start" asChild>
                     <Link to="/attendance">
                       <Play className="h-4 w-4 mr-2" />
                       Start Session
+                    </Link>
+                  </Button>
+                </>
+              )}
+              {user?.role === 'admin' && (
+                <>
+                  <Button variant="outline" className="w-full justify-start" asChild>
+                    <Link to="/attendance">
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      View Sessions
                     </Link>
                   </Button>
                   <Button variant="outline" className="w-full justify-start" asChild>
@@ -366,15 +376,13 @@ export default function Dashboard() {
                       Manage Classes
                     </Link>
                   </Button>
+                  <Button variant="outline" className="w-full justify-start" asChild>
+                    <Link to="/courses">
+                      <BookOpen className="h-4 w-4 mr-2" />
+                      Manage Courses
+                    </Link>
+                  </Button>
                 </>
-              )}
-              {user?.role === 'admin' && (
-                <Button variant="outline" className="w-full justify-start" asChild>
-                  <Link to="/courses">
-                    <BookOpen className="h-4 w-4 mr-2" />
-                    Manage Courses
-                  </Link>
-                </Button>
               )}
             </CardContent>
           </Card>

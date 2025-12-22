@@ -19,6 +19,16 @@ const DAY_ORDER: Record<string, number> = {
   monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 7
 };
 
+// All available rooms in the building
+const ALL_ROOMS = ['101', '102', '103', '104', '105', '201', '202', '203', '204', '205', '301', '302', '303', '304', '305'];
+
+// Available time slots
+const TIME_SLOTS = [
+  '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
+  '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30',
+  '16:00', '16:30', '17:00', '17:30', '18:00'
+];
+
 type SortField = 'name' | 'day_of_week' | 'schedule_time' | 'room_number' | 'course';
 type SortDirection = 'asc' | 'desc';
 
@@ -92,6 +102,28 @@ export default function Classes() {
     const rooms = new Set(classes.map(c => c.room_number));
     return Array.from(rooms).sort();
   }, [classes]);
+
+  // Get available rooms for selected day and time (rooms not occupied)
+  const availableRooms = useMemo(() => {
+    if (!formData.day_of_week || !formData.schedule_time) {
+      return ALL_ROOMS;
+    }
+    
+    // Find rooms that are occupied at this day/time
+    const occupiedRooms = new Set(
+      classes
+        .filter(cls => 
+          cls.day_of_week === formData.day_of_week && 
+          cls.schedule_time === formData.schedule_time &&
+          // Exclude the class being edited
+          cls.id !== editingClass?.id
+        )
+        .map(cls => cls.room_number)
+    );
+    
+    // Return rooms that are NOT occupied
+    return ALL_ROOMS.filter(room => !occupiedRooms.has(room));
+  }, [classes, formData.day_of_week, formData.schedule_time, editingClass?.id]);
 
   // Get course name by ID
   const getCourseName = (courseId: string) => {
@@ -573,7 +605,7 @@ export default function Classes() {
                     className="w-full h-10 px-3 rounded-md border border-input bg-background"
                     value={formData.mentor_id || ''}
                     onChange={(e) => setFormData({ ...formData, mentor_id: e.target.value || undefined })}
-                    disabled={!formData.course_id}
+                    disabled={!formData.course_id || availableMentors.length === 0}
                   >
                     <option value="">Select a mentor (optional)</option>
                     {availableMentors.map((mentor) => (
@@ -583,8 +615,46 @@ export default function Classes() {
                     ))}
                   </select>
                   {formData.course_id && availableMentors.length === 0 && (
-                    <p className="text-xs text-yellow-600">No mentors assigned to this course</p>
+                    <p className="text-xs text-yellow-600">No mentors assigned to this course. Assign mentors in the Courses page first.</p>
                   )}
+                  {!formData.course_id && (
+                    <p className="text-xs text-muted-foreground">Select a course first to see available mentors</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="day">Day of Week *</Label>
+                  <select
+                    id="day"
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background capitalize"
+                    value={formData.day_of_week}
+                    onChange={(e) => setFormData({ ...formData, day_of_week: e.target.value, room_number: '' })}
+                    required
+                  >
+                    {DAYS_OF_WEEK.map((day) => (
+                      <option key={day} value={day} className="capitalize">
+                        {day.charAt(0).toUpperCase() + day.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="time">Start Time *</Label>
+                  <select
+                    id="time"
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background"
+                    value={formData.schedule_time}
+                    onChange={(e) => setFormData({ ...formData, schedule_time: e.target.value, room_number: '' })}
+                    required
+                  >
+                    {TIME_SLOTS.map((time) => (
+                      <option key={time} value={time}>
+                        {time}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -600,49 +670,27 @@ export default function Classes() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="room">Room Number *</Label>
-                  <Input
+                  <Label htmlFor="room">Available Rooms *</Label>
+                  <select
                     id="room"
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background"
                     value={formData.room_number}
                     onChange={(e) => setFormData({ ...formData, room_number: e.target.value })}
-                    placeholder="e.g., 101, A-201"
-                    list="room-suggestions"
-                    required
-                  />
-                  <datalist id="room-suggestions">
-                    {uniqueRooms.map((room) => (
-                      <option key={room} value={room} />
-                    ))}
-                  </datalist>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="day">Day of Week *</Label>
-                  <select
-                    id="day"
-                    className="w-full h-10 px-3 rounded-md border border-input bg-background capitalize"
-                    value={formData.day_of_week}
-                    onChange={(e) => setFormData({ ...formData, day_of_week: e.target.value })}
                     required
                   >
-                    {DAYS_OF_WEEK.map((day) => (
-                      <option key={day} value={day} className="capitalize">
-                        {day.charAt(0).toUpperCase() + day.slice(1)}
+                    <option value="">Select an available room</option>
+                    {availableRooms.map((room) => (
+                      <option key={room} value={room}>
+                        Room {room}
                       </option>
                     ))}
                   </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="time">Start Time *</Label>
-                  <Input
-                    id="time"
-                    type="time"
-                    value={formData.schedule_time}
-                    onChange={(e) => setFormData({ ...formData, schedule_time: e.target.value })}
-                    required
-                  />
+                  {availableRooms.length === 0 && (
+                    <p className="text-xs text-yellow-600">No rooms available at this time. Try a different day or time.</p>
+                  )}
+                  {availableRooms.length > 0 && (
+                    <p className="text-xs text-muted-foreground">{availableRooms.length} room(s) available</p>
+                  )}
                 </div>
               </div>
 

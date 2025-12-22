@@ -113,7 +113,6 @@ export default function Landing() {
     },
   ];
 
-  // Floating navbar items
   const navItems = [
     { name: "Features", link: "#features" },
     { name: "How It Works", link: "#how-it-works" },
@@ -121,7 +120,7 @@ export default function Landing() {
     { name: "Testimonials", link: "#testimonials" },
   ];
 
-  // Landing page specific theme (violet/cyan dark theme from Next.js project)
+  // Landing page specific theme (violet/cyan dark theme)
   const landingThemeStyles = {
     '--background': 'oklch(0.07 0.01 280)',
     '--foreground': 'oklch(0.98 0 0)',
@@ -176,14 +175,9 @@ export default function Landing() {
             </Link>
           }
           actionButtons={
-            <>
-              <Button variant="ghost" size="sm" className="text-neutral-300 hover:text-white" asChild>
-                <Link to="/login">Sign In</Link>
-              </Button>
-              <Button size="sm" className="bg-primary hover:bg-primary/90" asChild>
-                <Link to="/register">Get Started</Link>
-              </Button>
-            </>
+            <Button size="sm" className="bg-primary hover:bg-primary/90" asChild>
+              <Link to="/login">Sign In</Link>
+            </Button>
           }
         />
 
@@ -227,26 +221,6 @@ export default function Landing() {
                 Eliminate manual roll calls forever. Our AI identifies and logs attendance in milliseconds as people
                 walk through the door. No badges, no check-ins, no friction.
               </motion.p>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.3 }}
-                className="flex flex-col sm:flex-row items-start gap-4 mb-10"
-              >
-                <Button size="lg" className="group" asChild>
-                  <Link to="/register">
-                    Start Free Trial
-                    <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-                  </Link>
-                </Button>
-                <Button size="lg" variant="outline" asChild>
-                  <Link to="/login" className="flex items-center gap-2">
-                    <Play className="w-5 h-5" />
-                    Watch Demo
-                  </Link>
-                </Button>
-              </motion.div>
 
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -509,20 +483,9 @@ export default function Landing() {
               <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 text-balance">
                 Ready to Transform Your Attendance?
               </h2>
-              <p className="text-muted-foreground mb-8 max-w-2xl mx-auto">
-                Join thousands of institutions already using AttendanceAI. Start your free trial today.
+              <p className="text-muted-foreground max-w-2xl mx-auto">
+                Join thousands of institutions already using AttendanceAI.
               </p>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Button size="lg" className="group" asChild>
-                  <Link to="/register">
-                    Start Free Trial
-                    <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-                  </Link>
-                </Button>
-                <Button size="lg" variant="outline" asChild>
-                  <Link to="/login">Contact Sales</Link>
-                </Button>
-              </div>
             </div>
           </motion.div>
         </div>

@@ -3,7 +3,9 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { authApi } from '@/services/authService';
+import { courseApi } from '@/services/scheduleService';
 import type { User, RegisterData } from '@/services/authService';
+import type { Course } from '@/services/scheduleService';
 import { useToast } from '@/hooks/useToast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,6 +30,7 @@ import {
     GraduationCap,
     Shield,
     Users as UsersIcon,
+    BookOpen,
 } from 'lucide-react';
 
 type UserRole = 'student' | 'mentor' | 'admin';
@@ -40,6 +43,7 @@ interface UserFormData {
     student_id: string;
     major: string;
     group: string;
+    course_ids: string[];
 }
 
 const initialFormData: UserFormData = {
@@ -50,6 +54,7 @@ const initialFormData: UserFormData = {
     student_id: '',
     major: '',
     group: '',
+    course_ids: [],
 };
 
 // Majors and their groups
@@ -77,6 +82,7 @@ const roleColors: Record<UserRole, string> = {
 export default function Users() {
     const { toast } = useToast();
     const [users, setUsers] = useState<User[]>([]);
+    const [courses, setCourses] = useState<Course[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
     const [showForm, setShowForm] = useState(false);
@@ -108,20 +114,29 @@ export default function Users() {
         return `${yearPrefix}${nextNum.toString().padStart(5, '0')}`;
     }, [users]);
 
-    // Fetch users
+    // Fetch users and courses
     const fetchUsers = async () => {
         try {
             setIsLoading(true);
             setError('');
             const role = roleFilter !== 'all' ? roleFilter : undefined;
-            const data = await authApi.getAllUsers(0, 100, role);
-            setUsers(data);
+            const [usersData, coursesRes] = await Promise.all([
+                authApi.getAllUsers(0, 100, role),
+                courseApi.getAll(),
+            ]);
+            setUsers(usersData);
+            setCourses(coursesRes.data);
         } catch (err) {
             setError('Failed to load users');
             console.error(err);
         } finally {
             setIsLoading(false);
         }
+    };
+
+    // Get courses taught by a mentor
+    const getMentorCourses = (mentorId: string): Course[] => {
+        return courses.filter(course => course.mentor_ids?.includes(mentorId));
     };
 
     useEffect(() => {
@@ -199,6 +214,36 @@ export default function Users() {
                     }
                 }
                 await authApi.updateUser(editingUser.id, updateData);
+                
+                // If mentor, update course assignments
+                if (formData.role === 'mentor') {
+                    const currentCourseIds = courses
+                        .filter(c => c.mentor_ids?.includes(editingUser.id))
+                        .map(c => c.id);
+                    
+                    // Remove from courses no longer selected
+                    for (const courseId of currentCourseIds) {
+                        if (!formData.course_ids.includes(courseId)) {
+                            try {
+                                await courseApi.removeMentor(courseId, editingUser.id);
+                            } catch (err) {
+                                console.error(`Failed to remove mentor from course ${courseId}:`, err);
+                            }
+                        }
+                    }
+                    
+                    // Add to newly selected courses
+                    for (const courseId of formData.course_ids) {
+                        if (!currentCourseIds.includes(courseId)) {
+                            try {
+                                await courseApi.assignMentor(courseId, editingUser.id);
+                            } catch (err) {
+                                console.error(`Failed to assign mentor to course ${courseId}:`, err);
+                            }
+                        }
+                    }
+                }
+                
                 toast({
                     title: 'User Updated',
                     description: `${formData.full_name} has been updated successfully.`,
@@ -223,6 +268,24 @@ export default function Users() {
                     }
                 }
                 await authApi.register(registerData);
+                
+                // If mentor, assign courses after creation
+                if (formData.role === 'mentor' && formData.course_ids.length > 0) {
+                    // Get the newly created user
+                    const allUsers = await authApi.getAllUsers(0, 100, 'mentor');
+                    const newMentor = allUsers.find(u => u.email === formData.email);
+                    if (newMentor) {
+                        // Assign mentor to selected courses
+                        for (const courseId of formData.course_ids) {
+                            try {
+                                await courseApi.assignMentor(courseId, newMentor.id);
+                            } catch (err) {
+                                console.error(`Failed to assign mentor to course ${courseId}:`, err);
+                            }
+                        }
+                    }
+                }
+                
                 toast({
                     title: 'User Created',
                     description: `${formData.full_name} has been created successfully.`,
@@ -254,6 +317,10 @@ export default function Users() {
             major = parts[0];
             group = parts[1] || '';
         }
+        // Get mentor's assigned courses
+        const mentorCourseIds = user.role === 'mentor' 
+            ? courses.filter(c => c.mentor_ids?.includes(user.id)).map(c => c.id)
+            : [];
         setFormData({
             email: user.email,
             password: '',
@@ -262,6 +329,7 @@ export default function Users() {
             student_id: user.student_id || '',
             major: major,
             group: group,
+            course_ids: mentorCourseIds,
         });
         setShowForm(true);
     };
@@ -499,6 +567,61 @@ export default function Users() {
                                 </div>
                             )}
 
+                            {formData.role === 'mentor' && (
+                                <div className="space-y-2">
+                                    <Label>Courses to Teach</Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        Select courses this mentor will teach
+                                    </p>
+                                    {courses.length === 0 ? (
+                                        <p className="text-sm text-yellow-600 bg-yellow-50 dark:bg-yellow-950 p-3 rounded-md">
+                                            No courses available. Create courses first.
+                                        </p>
+                                    ) : (
+                                        <div className="flex flex-wrap gap-2 mt-2">
+                                            {courses.map((course) => {
+                                                const isSelected = formData.course_ids.includes(course.id);
+                                                return (
+                                                    <button
+                                                        key={course.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (isSelected) {
+                                                                setFormData({
+                                                                    ...formData,
+                                                                    course_ids: formData.course_ids.filter(id => id !== course.id)
+                                                                });
+                                                            } else {
+                                                                setFormData({
+                                                                    ...formData,
+                                                                    course_ids: [...formData.course_ids, course.id]
+                                                                });
+                                                            }
+                                                        }}
+                                                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${isSelected
+                                                            ? 'bg-primary text-primary-foreground border-primary'
+                                                            : 'bg-background hover:bg-accent border-input'
+                                                            }`}
+                                                    >
+                                                        {isSelected ? (
+                                                            <X className="h-4 w-4" />
+                                                        ) : (
+                                                            <BookOpen className="h-4 w-4" />
+                                                        )}
+                                                        <span>{course.code} - {course.name}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    {formData.course_ids.length > 0 && (
+                                        <p className="text-sm text-muted-foreground mt-2">
+                                            {formData.course_ids.length} course(s) selected
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="flex gap-2">
                                 <Button type="submit" disabled={isSaving}>
                                     {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
@@ -564,6 +687,32 @@ export default function Users() {
                                                                 Major: {user.group}
                                                             </p>
                                                         )}
+                                                    </>
+                                                )}
+                                                {user.role === 'mentor' && (
+                                                    <>
+                                                        {(() => {
+                                                            const mentorCourses = getMentorCourses(user.id);
+                                                            return (
+                                                                <>
+                                                                    <p className="text-sm text-muted-foreground">
+                                                                        Courses: {mentorCourses.length}
+                                                                    </p>
+                                                                    {mentorCourses.length > 0 && (
+                                                                        <div className="flex flex-wrap gap-1 mt-1">
+                                                                            {mentorCourses.map(course => (
+                                                                                <span
+                                                                                    key={course.id}
+                                                                                    className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300"
+                                                                                >
+                                                                                    {course.code}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </>
+                                                            );
+                                                        })()}
                                                     </>
                                                 )}
                                             </div>
