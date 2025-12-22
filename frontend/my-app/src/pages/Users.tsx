@@ -20,6 +20,16 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
     Plus,
     Pencil,
     Loader2,
@@ -88,6 +98,7 @@ export default function Users() {
     const [showForm, setShowForm] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [formData, setFormData] = useState<UserFormData>(initialFormData);
+    const [userToToggle, setUserToToggle] = useState<User | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [roleFilter, setRoleFilter] = useState<string>('all');
     const [isSaving, setIsSaving] = useState(false);
@@ -334,20 +345,27 @@ export default function Users() {
         setShowForm(true);
     };
 
-    // Handle activate/deactivate
-    const handleToggleActive = async (user: User) => {
+    // Handle activate/deactivate - show confirmation dialog
+    const handleToggleActive = (user: User) => {
+        setUserToToggle(user);
+    };
+
+    // Confirm toggle active
+    const confirmToggleActive = async () => {
+        if (!userToToggle) return;
+
         try {
-            if (user.is_active) {
-                await authApi.deactivateUser(user.id);
+            if (userToToggle.is_active) {
+                await authApi.deactivateUser(userToToggle.id);
                 toast({
                     title: 'User Deactivated',
-                    description: `${user.full_name} has been deactivated.`,
+                    description: `${userToToggle.full_name} has been deactivated.`,
                 });
             } else {
-                await authApi.activateUser(user.id);
+                await authApi.activateUser(userToToggle.id);
                 toast({
                     title: 'User Activated',
-                    description: `${user.full_name} has been activated.`,
+                    description: `${userToToggle.full_name} has been activated.`,
                 });
             }
             fetchUsers();
@@ -358,6 +376,8 @@ export default function Users() {
                 description: message,
                 variant: 'destructive',
             });
+        } finally {
+            setUserToToggle(null);
         }
     };
 
@@ -795,6 +815,35 @@ export default function Users() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* Confirmation Dialog */}
+            <AlertDialog open={!!userToToggle} onOpenChange={(open) => !open && setUserToToggle(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {userToToggle?.is_active ? 'Deactivate User' : 'Activate User'}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to {userToToggle?.is_active ? 'deactivate' : 'activate'}{' '}
+                            <span className="font-semibold">{userToToggle?.full_name}</span>?
+                            {userToToggle?.is_active && (
+                                <span className="block mt-2 text-destructive">
+                                    This user will no longer be able to access the system.
+                                </span>
+                            )}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmToggleActive}
+                            className={userToToggle?.is_active ? 'bg-destructive hover:bg-destructive/90' : ''}
+                        >
+                            {userToToggle?.is_active ? 'Deactivate' : 'Activate'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
