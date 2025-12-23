@@ -143,6 +143,30 @@ class AuthService:
         """Get user by email."""
         return self.user_repo.find_by_email(email)
     
+    def generate_tokens_for_user(self, user: User) -> Dict[str, str]:
+        """
+        Generate access and refresh tokens for a user.
+        Used for face login where password verification is bypassed.
+        
+        Args:
+            user: User object
+            
+        Returns:
+            Dict with 'access_token' and 'refresh_token'
+        """
+        access_token = self.token_service.create_access_token(
+            user_id=str(user.id),
+            email=user.email,
+            role=user.role
+        )
+        refresh_token = self.token_service.create_refresh_token(
+            user_id=str(user.id)
+        )
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token
+        }
+    
     def update_user(self, user_id: UUID, **kwargs) -> Optional[User]:
         """Update user fields."""
         # If updating password, hash it

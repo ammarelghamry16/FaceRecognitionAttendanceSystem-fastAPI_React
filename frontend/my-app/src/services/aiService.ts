@@ -147,6 +147,27 @@ export const aiApi = {
     return aiApi.recognizeFace(file);
   },
 
+  /**
+   * Recognize face from base64 and mark attendance
+   */
+  recognizeForAttendanceBase64: async (
+    sessionId: string,
+    base64Image: string
+  ): Promise<AttendanceRecognitionResponse> => {
+    // Convert base64 to blob
+    const byteString = atob(base64Image.split(',')[1] || base64Image);
+    const mimeString = base64Image.split(',')[0]?.split(':')[1]?.split(';')[0] || 'image/jpeg';
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    const blob = new Blob([ab], { type: mimeString });
+    const file = new File([blob], 'face.jpg', { type: mimeString });
+
+    return aiApi.recognizeForAttendance(sessionId, file);
+  },
+
   // ==================== Management ====================
 
   /**

@@ -1,10 +1,11 @@
 """
 FastAPI routes for Auth Service.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
+import logging
 
 from shared.database.connection import get_db_session
 from shared.models.user import User
@@ -31,6 +32,8 @@ from .dependencies import (
     get_current_active_user,
     require_role
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -66,6 +69,65 @@ def login(
         user=UserResponse.model_validate(user),
         access_token=result.additional_data["access_token"],
         refresh_token=result.additional_data["refresh_token"],
+        token_type="bearer"
+    )
+
+
+@router.post("/login/face", response_model=LoginResponse)
+async def login_with_face(
+    image: UploadFile = File(...),
+    db: Session = Depends(get_db_session)
+):
+    """
+    Authenticate user using face recognition.
+    
+    - **image**: Face image file
+    
+    Returns access token, refresh token, and user info if face is recognized.
+    """
+    from ...ai_service.services.recognition_service import RecognitionService
+    
+    content = await image.read()
+    
+    # Recognize face
+    recognition_service = RecognitionService(db)
+    result = recognition_service.recognize_face(content)
+    
+    if not result.matched:
+        logger.warning(f"Face login failed: {result.message}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=result.message or "Face not recognized",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    # Get user by ID
+    auth_service = AuthService(db)
+    user = auth_service.get_user_by_id(UUID(result.user_id))
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is deactivated",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    # Generate tokens for the user
+    tokens = auth_service.generate_tokens_for_user(user)
+    
+    logger.info(f"Face login successful for user {user.email} (confidence: {result.confidence:.2%})")
+    
+    return LoginResponse(
+        user=UserResponse.model_validate(user),
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
         token_type="bearer"
     )
 

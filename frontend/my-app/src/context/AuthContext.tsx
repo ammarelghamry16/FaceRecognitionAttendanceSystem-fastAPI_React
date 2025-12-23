@@ -12,6 +12,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
+  loginWithFace: (base64Image: string) => Promise<void>;
   logout: () => Promise<void>;
   setRole: (role: 'student' | 'mentor' | 'admin') => void;
 }
@@ -101,6 +102,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const loginWithFace = async (base64Image: string) => {
+    try {
+      const response = await authApi.loginWithFaceBase64(base64Image);
+      setUser(parseUser(response.user));
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const logout = async () => {
     await authApi.logout();
     setUser(null);
@@ -129,6 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         isLoading,
         login,
+        loginWithFace,
         logout,
         setRole,
       }}

@@ -142,7 +142,8 @@ async def lifespan(app: FastAPI):
     # Shutdown AI adapter (cleanup thread pool)
     try:
         from services.ai_service.adapters.insightface_adapter import InsightFaceAdapter
-        InsightFaceAdapter.shutdown()
+        if hasattr(InsightFaceAdapter, 'shutdown'):
+            InsightFaceAdapter.shutdown()
     except Exception:
         pass
 

@@ -294,7 +294,14 @@ def get_ai_service_status(
     - max_concurrent_requests: Maximum concurrent inference requests
     - prefer_gpu: Whether GPU is preferred
     """
-    from ..adapters.insightface_adapter import InsightFaceAdapter
+    from ..adapters import get_best_available_adapter
     
-    adapter = InsightFaceAdapter()
-    return adapter.get_status()
+    try:
+        adapter = get_best_available_adapter()
+        return adapter.get_status()
+    except ImportError as e:
+        return {
+            "model_loaded": False,
+            "error": str(e),
+            "message": "No face recognition library available"
+        }

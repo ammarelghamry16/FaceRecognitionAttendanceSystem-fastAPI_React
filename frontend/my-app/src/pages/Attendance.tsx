@@ -1,16 +1,17 @@
 /**
  * Attendance Page - Real backend integration
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle, XCircle, Clock, Play, Square, TrendingUp, Loader2, RefreshCw, Wifi, Download, FileText, Camera, Hand, Timer } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Play, Square, TrendingUp, Loader2, RefreshCw, Wifi, Download, FileText, Camera, Hand, Timer, X, AlertCircle, UserCheck } from 'lucide-react';
 import { attendanceApi } from '@/services/attendanceService';
 import type { AttendanceSession, AttendanceRecord } from '@/services/attendanceService';
+import { aiApi } from '@/services/aiService';
 import { exportToCSV, exportToPDF, type ExportRecord } from '@/utils/exportUtils';
 import { CardSkeleton, TableRowSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { classApi } from '@/services/scheduleService';
@@ -132,8 +133,136 @@ export default function Attendance() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Face scanning state
+  const [showFaceScanner, setShowFaceScanner] = useState(false);
+  const [isScanningFace, setIsScanningFace] = useState(false);
+  const [scanResult, setScanResult] = useState<{ success: boolean; message: string; studentName?: string } | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   // Get today's day name
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+
+  // Stop camera helper
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  // Start face scanner camera
+  const startFaceScanner = useCallback(async () => {
+    setShowFaceScanner(true);
+    setScanResult(null);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+      streamRef.current = stream;
+
+      const video = videoRef.current;
+      if (!video) throw new Error('Video element not found');
+
+      video.srcObject = stream;
+      await video.play();
+    } catch (err) {
+      console.error('[FaceScanner] Camera error:', err);
+      toast({
+        title: 'Camera Error',
+        description: err instanceof Error ? err.message : 'Failed to access camera',
+        variant: 'destructive',
+      });
+      setShowFaceScanner(false);
+    }
+  }, []);
+
+  // Capture and recognize face for attendance
+  const captureAndRecognize = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || !activeSession) return;
+
+    setIsScanningFace(true);
+    setScanResult(null);
+
+    try {
+      // Capture frame
+      const captureCanvas = document.createElement('canvas');
+      captureCanvas.width = video.videoWidth;
+      captureCanvas.height = video.videoHeight;
+      const ctx = captureCanvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas error');
+
+      ctx.translate(captureCanvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0);
+
+      const imageData = captureCanvas.toDataURL('image/jpeg', 0.92);
+
+      // Call face recognition API for attendance
+      const result = await aiApi.recognizeForAttendanceBase64(activeSession.id, imageData);
+
+      if (result.recognized && result.attendance_marked) {
+        setScanResult({
+          success: true,
+          message: `Attendance marked as ${result.status}`,
+          studentName: result.user_id,
+        });
+        toast({
+          title: 'Attendance Marked',
+          description: `Student recognized and marked as ${result.status}`,
+          variant: 'success',
+        });
+      } else if (result.recognized && !result.attendance_marked) {
+        setScanResult({
+          success: false,
+          message: result.message || 'Student already marked or not enrolled in this class',
+        });
+        toast({
+          title: 'Already Marked',
+          description: result.message || 'Student already has attendance record',
+          variant: 'default',
+        });
+      } else {
+        setScanResult({
+          success: false,
+          message: result.message || 'Face not recognized',
+        });
+        toast({
+          title: 'Not Recognized',
+          description: result.message || 'Face not found in database',
+          variant: 'destructive',
+        });
+      }
+    } catch (err) {
+      console.error('[FaceScanner] Recognition error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Recognition failed';
+      setScanResult({
+        success: false,
+        message: errorMessage,
+      });
+      toast({
+        title: 'Recognition Failed',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsScanningFace(false);
+    }
+  }, [activeSession]);
+
+  // Close face scanner
+  const closeFaceScanner = useCallback(() => {
+    stopCamera();
+    setShowFaceScanner(false);
+    setScanResult(null);
+  }, [stopCamera]);
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => stopCamera();
+  }, [stopCamera]);
 
   // Fetch classes on mount
   useEffect(() => {
@@ -553,10 +682,16 @@ export default function Attendance() {
                     <div className="text-xs text-yellow-600 dark:text-yellow-500">Late</div>
                   </div>
                 </div>
-                <Button variant="destructive" onClick={handleEndSession}>
-                  <Square className="h-4 w-4 mr-2" />
-                  End Session
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={startFaceScanner} className="flex-1">
+                    <Camera className="h-4 w-4 mr-2" />
+                    Scan Student Face
+                  </Button>
+                  <Button variant="destructive" onClick={handleEndSession}>
+                    <Square className="h-4 w-4 mr-2" />
+                    End Session
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>
@@ -699,6 +834,110 @@ export default function Attendance() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Face Scanner Modal */}
+      {showFaceScanner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg mx-4 bg-card rounded-2xl overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-semibold text-foreground">Scan Student Face</h3>
+              </div>
+              <button
+                onClick={closeFaceScanner}
+                className="p-1 rounded-full hover:bg-secondary transition-colors"
+              >
+                <X className="w-5 h-5 text-muted-foreground" />
+              </button>
+            </div>
+
+            {/* Camera View */}
+            <div className="relative bg-black aspect-[4/3]">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{ transform: 'scaleX(-1)' }}
+              />
+
+              {/* Face guide oval */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-48 h-60 rounded-[50%] border-4 border-primary/70" />
+              </div>
+
+              {/* Scanning overlay */}
+              {isScanningFace && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 text-white">
+                  <Loader2 className="w-12 h-12 animate-spin mb-4 text-primary" />
+                  <p className="text-lg">Recognizing face...</p>
+                </div>
+              )}
+
+              {/* Result overlay */}
+              {scanResult && (
+                <div className={`absolute inset-0 flex flex-col items-center justify-center text-white p-6 ${
+                  scanResult.success ? 'bg-green-900/90' : 'bg-red-900/90'
+                }`}>
+                  {scanResult.success ? (
+                    <>
+                      <UserCheck className="w-16 h-16 mb-4 text-green-400" />
+                      <p className="text-xl font-semibold">Attendance Marked!</p>
+                      <p className="text-sm text-green-200 mt-2">{scanResult.message}</p>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-16 h-16 mb-4 text-red-400" />
+                      <p className="text-xl font-semibold">Not Recognized</p>
+                      <p className="text-sm text-red-200 mt-2 text-center">{scanResult.message}</p>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-border space-y-3">
+              {!scanResult ? (
+                <>
+                  <p className="text-sm text-center text-muted-foreground">
+                    Position the student's face in the oval and click capture
+                  </p>
+                  <Button 
+                    onClick={captureAndRecognize} 
+                    className="w-full"
+                    disabled={isScanningFace}
+                  >
+                    {isScanningFace ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Recognizing...
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-4 h-4 mr-2" />
+                        Capture & Mark Attendance
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <div className="flex gap-3">
+                  <Button onClick={closeFaceScanner} variant="outline" className="flex-1">
+                    Close
+                  </Button>
+                  <Button onClick={() => setScanResult(null)} className="flex-1">
+                    Scan Another
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

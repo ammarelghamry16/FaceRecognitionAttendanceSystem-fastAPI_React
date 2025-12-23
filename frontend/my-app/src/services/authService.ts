@@ -94,6 +94,58 @@ export const authApi = {
   },
 
   /**
+   * Login with face recognition
+   */
+  loginWithFace: async (imageFile: File): Promise<AuthResponse> => {
+    try {
+      const formData = new FormData();
+      formData.append('image', imageFile);
+
+      const response = await api.post<AuthResponse>('/api/auth/login/face', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      // Face login always uses sessionStorage for security
+      const storage = sessionStorage;
+      localStorage.removeItem('remember_me');
+
+      // Store tokens
+      storage.setItem('access_token', response.data.access_token);
+      storage.setItem('refresh_token', response.data.refresh_token);
+      storage.setItem('user', JSON.stringify(response.data.user));
+
+      return response.data;
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as { response?: { data?: { detail?: string } } };
+        const message = axiosError.response?.data?.detail || 'Face not recognized';
+        throw new Error(message);
+      }
+      throw new Error('Network error. Please try again.');
+    }
+  },
+
+  /**
+   * Login with face recognition from base64 image
+   */
+  loginWithFaceBase64: async (base64Image: string): Promise<AuthResponse> => {
+    // Convert base64 to blob
+    const byteString = atob(base64Image.split(',')[1] || base64Image);
+    const mimeString = base64Image.split(',')[0]?.split(':')[1]?.split(';')[0] || 'image/jpeg';
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    const blob = new Blob([ab], { type: mimeString });
+    const file = new File([blob], 'face.jpg', { type: mimeString });
+
+    return authApi.loginWithFace(file);
+  },
+
+  /**
    * Register a new user
    */
   register: async (data: RegisterData): Promise<AuthResponse> => {

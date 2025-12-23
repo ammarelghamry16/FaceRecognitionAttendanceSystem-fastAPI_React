@@ -2,7 +2,7 @@
  * Login Page - Modern Sign-In with Face Scan Visual
  * Converted from Next.js sign-in page to React (Vite)
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/useToast";
@@ -12,7 +12,10 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FaceScanVisual } from "@/components/FaceScanVisual";
-import { Scan, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, Camera, Home } from "lucide-react";
+import { Scan, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, Camera, Home, X, AlertCircle, CheckCircle } from "lucide-react";
+
+// Face login types
+type FaceLoginPhase = 'idle' | 'scanning' | 'processing' | 'success' | 'error';
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -24,7 +27,15 @@ export default function Login() {
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [formError, setFormError] = useState("");
 
-  const { login, isAuthenticated, isLoading: authLoading } = useAuth();
+  // Face login state
+  const [showFaceModal, setShowFaceModal] = useState(false);
+  const [faceLoginPhase, setFaceLoginPhase] = useState<FaceLoginPhase>('idle');
+  const [faceLoginError, setFaceLoginError] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const { login, loginWithFace, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -34,6 +45,106 @@ export default function Login() {
       navigate("/dashboard", { replace: true });
     }
   }, [isAuthenticated, authLoading, navigate]);
+
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  // Stop camera helper
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  // Start camera for face login
+  const startFaceLogin = useCallback(async () => {
+    setShowFaceModal(true);
+    setFaceLoginPhase('scanning');
+    setFaceLoginError("");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+      streamRef.current = stream;
+
+      const video = videoRef.current;
+      if (!video) throw new Error('Video element not found');
+
+      video.srcObject = stream;
+      await video.play();
+    } catch (err) {
+      console.error('[FaceLogin] Camera error:', err);
+      setFaceLoginError(err instanceof Error ? err.message : 'Failed to access camera');
+      setFaceLoginPhase('error');
+    }
+  }, []);
+
+  // Capture and submit face for login
+  const captureAndLogin = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    setFaceLoginPhase('processing');
+
+    try {
+      // Capture frame
+      const captureCanvas = document.createElement('canvas');
+      captureCanvas.width = video.videoWidth;
+      captureCanvas.height = video.videoHeight;
+      const ctx = captureCanvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas error');
+
+      ctx.translate(captureCanvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0);
+
+      const imageData = captureCanvas.toDataURL('image/jpeg', 0.92);
+
+      // Stop camera while processing
+      stopCamera();
+
+      // Call face login via AuthContext (updates user state properly)
+      await loginWithFace(imageData);
+
+      setFaceLoginPhase('success');
+      toast({
+        title: "Login Successful",
+        description: "Welcome back!",
+      });
+
+      // Navigate after brief delay
+      setTimeout(() => {
+        setShowFaceModal(false);
+        navigate("/dashboard");
+      }, 1000);
+    } catch (err) {
+      console.error('[FaceLogin] Login error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Face not recognized';
+      setFaceLoginError(errorMessage);
+      setFaceLoginPhase('error');
+      toast({
+        title: "Face Login Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  }, [stopCamera, loginWithFace, toast, navigate]);
+
+  // Close face modal
+  const closeFaceModal = useCallback(() => {
+    stopCamera();
+    setShowFaceModal(false);
+    setFaceLoginPhase('idle');
+    setFaceLoginError("");
+  }, [stopCamera]);
 
   // Show loading while checking auth status
   if (authLoading) {
@@ -261,6 +372,7 @@ export default function Login() {
                 type="button"
                 variant="outline"
                 className="w-full border-primary/50 text-foreground hover:bg-primary/10 hover:border-primary transition-all bg-transparent"
+                onClick={startFaceLogin}
               >
                 <Camera className="w-4 h-4 mr-2 text-primary" />
                 Sign in with Face Recognition
@@ -327,6 +439,98 @@ export default function Login() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Face Login Modal */}
+      {showFaceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg mx-4 bg-card rounded-2xl overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-semibold text-foreground">Face Recognition Login</h3>
+              </div>
+              <button
+                onClick={closeFaceModal}
+                className="p-1 rounded-full hover:bg-secondary transition-colors"
+              >
+                <X className="w-5 h-5 text-muted-foreground" />
+              </button>
+            </div>
+
+            {/* Camera View */}
+            <div className="relative bg-black aspect-[4/3]">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`absolute inset-0 w-full h-full object-cover ${faceLoginPhase !== 'scanning' ? 'hidden' : ''}`}
+                style={{ transform: 'scaleX(-1)' }}
+              />
+              <canvas ref={canvasRef} className="hidden" />
+
+              {/* Face guide oval */}
+              {faceLoginPhase === 'scanning' && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-48 h-60 rounded-[50%] border-4 border-primary/70" />
+                </div>
+              )}
+
+              {/* Processing state */}
+              {faceLoginPhase === 'processing' && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white">
+                  <Loader2 className="w-12 h-12 animate-spin mb-4 text-primary" />
+                  <p className="text-lg">Recognizing face...</p>
+                </div>
+              )}
+
+              {/* Success state */}
+              {faceLoginPhase === 'success' && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-green-900/90 text-white">
+                  <CheckCircle className="w-16 h-16 mb-4 text-green-400" />
+                  <p className="text-xl font-semibold">Login Successful!</p>
+                  <p className="text-sm text-green-200 mt-2">Redirecting to dashboard...</p>
+                </div>
+              )}
+
+              {/* Error state */}
+              {faceLoginPhase === 'error' && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-900/90 text-white p-6">
+                  <AlertCircle className="w-16 h-16 mb-4 text-red-400" />
+                  <p className="text-xl font-semibold mb-2">Recognition Failed</p>
+                  <p className="text-sm text-red-200 text-center">{faceLoginError}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-border space-y-3">
+              {faceLoginPhase === 'scanning' && (
+                <>
+                  <p className="text-sm text-center text-muted-foreground">
+                    Position your face in the oval and click capture
+                  </p>
+                  <Button onClick={captureAndLogin} className="w-full">
+                    <Camera className="w-4 h-4 mr-2" />
+                    Capture & Login
+                  </Button>
+                </>
+              )}
+              {faceLoginPhase === 'error' && (
+                <div className="flex gap-3">
+                  <Button onClick={closeFaceModal} variant="outline" className="flex-1">
+                    Cancel
+                  </Button>
+                  <Button onClick={startFaceLogin} className="flex-1">
+                    Try Again
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

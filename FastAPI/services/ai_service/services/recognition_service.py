@@ -79,10 +79,11 @@ class RecognitionService:
     
     @property
     def adapter(self) -> IFaceRecognitionAdapter:
-        """Get face recognition adapter (lazy loading)."""
+        """Get face recognition adapter (lazy loading with fallback)."""
         if self._adapter is None:
-            from ..adapters.insightface_adapter import InsightFaceAdapter
-            self._adapter = InsightFaceAdapter()
+            from ..adapters import get_best_available_adapter
+            self._adapter = get_best_available_adapter()
+            logger.info(f"Using face recognition adapter: {self._adapter.name}")
         return self._adapter
     
     # ==================== Enrollment ====================
@@ -186,16 +187,21 @@ class RecognitionService:
                         quality_score=quality_metrics.overall_score
                     )
             
-            # Classify pose
+            # Classify pose (only works with InsightFace adapter)
             pose_info = None
             pose_category = None
             try:
-                # Try to get pose from InsightFace face object
-                faces = self.adapter.app.get(image[:, :, ::-1])  # RGB to BGR
-                if faces:
-                    pose_info = self.pose_classifier.classify_from_face(faces[0])
-                    pose_category = pose_info.category.value if pose_info else None
-                    logger.info(f"🔍 ENROLL: Pose classified - category={pose_category}")
+                # Check if adapter supports pose detection (InsightFace only)
+                if hasattr(self.adapter, 'app') and self.adapter.app is not None:
+                    # Try to get pose from InsightFace face object
+                    faces = self.adapter.app.get(image[:, :, ::-1])  # RGB to BGR
+                    if faces:
+                        pose_info = self.pose_classifier.classify_from_face(faces[0])
+                        pose_category = pose_info.category.value if pose_info else None
+                        logger.info(f"🔍 ENROLL: Pose classified - category={pose_category}")
+                else:
+                    # face_recognition adapter doesn't support pose detection
+                    logger.info("🔍 ENROLL: Pose classification not available with current adapter")
             except Exception as e:
                 logger.warning(f"🔍 ENROLL: Pose classification failed: {e}")
             

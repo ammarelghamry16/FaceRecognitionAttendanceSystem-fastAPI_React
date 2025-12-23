@@ -481,7 +481,7 @@ export default function FaceEnrollment() {
   };
 
   return (
-    <div className="container mx-auto p-6 max-w-2xl">
+    <div className="container mx-auto p-4 sm:p-6 max-w-2xl">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -521,8 +521,8 @@ export default function FaceEnrollment() {
             </div>
           )}
 
-          {/* Camera view */}
-          <div className="relative aspect-[4/3] bg-black rounded-xl overflow-hidden">
+          {/* Camera view - larger on mobile */}
+          <div className="relative bg-black rounded-xl overflow-hidden h-[65vh] sm:h-[400px] md:h-[450px]">
             <video
               ref={videoRef}
               autoPlay
@@ -550,9 +550,9 @@ export default function FaceEnrollment() {
             {/* Scanning overlay */}
             {phase === 'scanning' && (
               <>
-                {/* Face guide oval */}
+                {/* Face guide oval - larger on mobile */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="relative w-52 h-64">
+                  <div className="relative w-48 h-60 sm:w-52 sm:h-64 md:w-56 md:h-72">
                     {/* Oval guide */}
                     <div
                       className="absolute inset-0 rounded-[50%] border-4 transition-colors duration-300"
