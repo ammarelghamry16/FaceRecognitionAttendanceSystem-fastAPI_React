@@ -266,6 +266,37 @@ def _get_mentor_info(db: Session, mentor_ids: List[UUID]) -> List[MentorInfo]:
     return mentors
 
 
+# Helper function to get class state based on active attendance session
+def _get_class_with_state(db: Session, class_obj) -> ClassResponse:
+    """Convert class object to ClassResponse with state based on attendance session."""
+    from services.attendance_service.repositories.session_repository import SessionRepository
+    
+    session_repo = SessionRepository(db)
+    active_session = session_repo.find_active_by_class(class_obj.id)
+    
+    state = "inactive"
+    if active_session:
+        state = "active"
+    
+    return ClassResponse(
+        id=class_obj.id,
+        course_id=class_obj.course_id,
+        mentor_id=class_obj.mentor_id,
+        name=class_obj.name,
+        room_number=class_obj.room_number,
+        day_of_week=class_obj.day_of_week,
+        schedule_time=class_obj.schedule_time,
+        state=state,
+        created_at=class_obj.created_at,
+        updated_at=class_obj.updated_at
+    )
+
+
+def _get_classes_with_state(db: Session, classes: List) -> List[ClassResponse]:
+    """Convert list of class objects to ClassResponse with state."""
+    return [_get_class_with_state(db, c) for c in classes]
+
+
 # ==================== Class Endpoints ====================
 
 @router.post("/classes", response_model=ClassResponse, status_code=status.HTTP_201_CREATED)
@@ -293,7 +324,7 @@ def create_class(
             day_of_week=class_data.day_of_week,
             schedule_time=class_data.schedule_time
         )
-        return class_obj
+        return _get_class_with_state(db, class_obj)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -312,7 +343,7 @@ def get_class(
     if not class_obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
     
-    return class_obj
+    return _get_class_with_state(db, class_obj)
 
 
 @router.get("/classes", response_model=List[ClassResponse])
@@ -324,7 +355,7 @@ def get_all_classes(
     """Get all classes with pagination."""
     service = ScheduleService(db)
     classes = service.get_all_classes(skip=skip, limit=limit)
-    return classes
+    return _get_classes_with_state(db, classes)
 
 
 @router.put("/classes/{class_id}", response_model=ClassResponse)
@@ -345,7 +376,7 @@ def update_class(
         if not class_obj:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found")
         
-        return class_obj
+        return _get_class_with_state(db, class_obj)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
@@ -437,7 +468,7 @@ def create_class_with_validation(
         if result['success']:
             return {
                 'success': True,
-                'class': ClassResponse.model_validate(result['class']),
+                'class': _get_class_with_state(db, result['class']),
                 'conflicts': None
             }
         else:
@@ -464,7 +495,7 @@ def get_student_schedule(
     """Get schedule for a specific student."""
     service = ScheduleService(db)
     classes = service.get_schedule_for_student(student_id, skip=skip, limit=limit)
-    return classes
+    return _get_classes_with_state(db, classes)
 
 
 @router.get("/schedule/mentor/{mentor_id}", response_model=List[ClassResponse])
@@ -477,7 +508,7 @@ def get_mentor_schedule(
     """Get schedule for a specific mentor."""
     service = ScheduleService(db)
     classes = service.get_schedule_for_mentor(mentor_id, skip=skip, limit=limit)
-    return classes
+    return _get_classes_with_state(db, classes)
 
 
 @router.get("/schedule/full", response_model=List[ClassResponse])
@@ -489,7 +520,7 @@ def get_full_schedule(
     """Get full schedule (all classes)."""
     service = ScheduleService(db)
     classes = service.get_full_schedule(skip=skip, limit=limit)
-    return classes
+    return _get_classes_with_state(db, classes)
 
 
 @router.get("/schedule/day/{day}", response_model=List[ClassResponse])
@@ -500,7 +531,7 @@ def get_schedule_by_day(
     """Get all classes for a specific day."""
     service = ScheduleService(db)
     classes = service.get_classes_by_day(day)
-    return classes
+    return _get_classes_with_state(db, classes)
 
 
 @router.get("/schedule/room/{room_number}", response_model=List[ClassResponse])
@@ -511,7 +542,7 @@ def get_schedule_by_room(
     """Get all classes in a specific room."""
     service = ScheduleService(db)
     classes = service.get_classes_by_room(room_number)
-    return classes
+    return _get_classes_with_state(db, classes)
 
 
 # ==================== Enrollment Endpoints ====================

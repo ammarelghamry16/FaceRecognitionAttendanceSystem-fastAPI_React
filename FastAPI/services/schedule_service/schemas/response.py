@@ -54,6 +54,7 @@ class ClassResponse(BaseModel):
     room_number: str
     day_of_week: str
     schedule_time: time
+    state: str = "inactive"  # inactive, active, completed - based on attendance session
     created_at: datetime
     updated_at: datetime
 
