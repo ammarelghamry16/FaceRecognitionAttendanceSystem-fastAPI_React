@@ -38,7 +38,7 @@
 | **Pose Classification** | Categorizing face orientation (front, left, right, up, down) |
 | **Quality Score** | Metric measuring image quality (sharpness, lighting, size) |
 | **Threshold** | Minimum confidence score required for positive recognition |
-
+ 
 ## 4.3 System-Specific Terms
 
 | Term | Definition |
