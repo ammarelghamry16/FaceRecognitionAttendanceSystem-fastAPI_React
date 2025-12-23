@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from shared.database.connection import DatabaseConnection
 from shared.database.base import Base
 
+
 # Import all models so SQLAlchemy knows about them
 from shared.models.user import User
 from services.schedule_service.models.course import Course
