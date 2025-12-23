@@ -118,6 +118,13 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
+// Extended session type with class info for admin view
+interface ActiveSessionWithClass extends AttendanceSession {
+  class_name?: string;
+  mentor_name?: string;
+  stats?: { present: number; absent: number; late: number };
+}
+
 export default function Attendance() {
   const { user } = useAuth();
   const [classes, setClasses] = useState<Class[]>([]);
@@ -132,6 +139,10 @@ export default function Attendance() {
   const [isLivePolling, setIsLivePolling] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Admin spectator mode state
+  const [allActiveSessions, setAllActiveSessions] = useState<ActiveSessionWithClass[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
   // Face scanning state
   const [showFaceScanner, setShowFaceScanner] = useState(false);
@@ -288,15 +299,60 @@ export default function Attendance() {
             // Show zeros when API fails - no demo data
             setStudentStats({ present: 0, late: 0, absent: 0, total: 0, rate: 0 });
           }
+        } else if (user?.role === 'admin') {
+          // Admin: Fetch all active sessions for spectator mode
+          try {
+            // Fetch all active sessions and all classes (not just today's)
+            const activeSessions = await attendanceApi.getAllActiveSessions();
+            console.log('[Admin] Active sessions:', activeSessions);
+            
+            // Fetch all classes to get class names
+            const allClassesRes = await classApi.getAll();
+            console.log('[Admin] All classes:', allClassesRes.data);
+            setClasses(allClassesRes.data);
+
+            // Enrich sessions with class info and stats
+            const enrichedSessions: ActiveSessionWithClass[] = await Promise.all(
+              activeSessions.map(async (session) => {
+                const classInfo = allClassesRes.data.find((c: Class) => c.id === session.class_id);
+                let sessionStats = { present: 0, absent: 0, late: 0 };
+                try {
+                  const statsRes = await attendanceApi.getSessionStats(session.id);
+                  sessionStats = { present: statsRes.present, absent: statsRes.absent, late: statsRes.late };
+                } catch {
+                  // Fallback: fetch records and calculate
+                  try {
+                    const sessionRecords = await attendanceApi.getSessionRecords(session.id);
+                    sessionStats = {
+                      present: sessionRecords.filter(r => r.status === 'present').length,
+                      absent: sessionRecords.filter(r => r.status === 'absent').length,
+                      late: sessionRecords.filter(r => r.status === 'late').length,
+                    };
+                  } catch { /* ignore */ }
+                }
+                return {
+                  ...session,
+                  class_name: classInfo?.name || 'Unknown Class',
+                  mentor_name: classInfo?.mentor_id || 'Unknown',
+                  stats: sessionStats,
+                };
+              })
+            );
+            setAllActiveSessions(enrichedSessions);
+          } catch (err) {
+            console.error('Failed to fetch active sessions:', err);
+            // Fallback to regular class fetch
+            const classesRes = await classApi.getByDay(today);
+            setClasses(classesRes.data);
+          }
         } else {
-          // Fetch classes for mentor/admin - only today's classes
+          // Mentor: Fetch classes for mentor - only today's classes
           let classesRes;
           if (user?.role === 'mentor' && user?.id) {
             // Mentors only see their assigned classes for today
             classesRes = await classApi.getByMentor(user.id);
             classesRes.data = classesRes.data.filter((c: Class) => c.day_of_week === today);
           } else {
-            // Admins see all classes for today
             classesRes = await classApi.getByDay(today);
           }
           setClasses(classesRes.data);
@@ -331,6 +387,61 @@ export default function Attendance() {
 
     checkActiveSession();
   }, [selectedClass]);
+
+  // Admin: Handle selecting a session to view details
+  const handleSelectSession = async (sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    const session = allActiveSessions.find(s => s.id === sessionId);
+    if (session) {
+      setActiveSession(session);
+      try {
+        const sessionRecords = await attendanceApi.getSessionRecords(sessionId);
+        setRecords(sessionRecords);
+        setLastUpdate(new Date());
+      } catch (err) {
+        console.error('Failed to fetch session records:', err);
+      }
+    }
+  };
+
+  // Admin: Go back to all sessions view
+  const handleBackToAllSessions = () => {
+    setSelectedSessionId(null);
+    setActiveSession(null);
+    setRecords([]);
+  };
+
+  // Admin: Refresh all active sessions
+  const refreshAllSessions = async () => {
+    if (user?.role !== 'admin') return;
+    try {
+      const activeSessions = await attendanceApi.getAllActiveSessions();
+      const enrichedSessions: ActiveSessionWithClass[] = await Promise.all(
+        activeSessions.map(async (session) => {
+          const classInfo = classes.find((c: Class) => c.id === session.class_id);
+          let sessionStats = { present: 0, absent: 0, late: 0 };
+          try {
+            const sessionRecords = await attendanceApi.getSessionRecords(session.id);
+            sessionStats = {
+              present: sessionRecords.filter(r => r.status === 'present').length,
+              absent: sessionRecords.filter(r => r.status === 'absent').length,
+              late: sessionRecords.filter(r => r.status === 'late').length,
+            };
+          } catch { /* ignore */ }
+          return {
+            ...session,
+            class_name: classInfo?.name || 'Unknown Class',
+            mentor_name: classInfo?.mentor_id || 'Unknown',
+            stats: sessionStats,
+          };
+        })
+      );
+      setAllActiveSessions(enrichedSessions);
+      setLastUpdate(new Date());
+    } catch (err) {
+      console.error('Failed to refresh sessions:', err);
+    }
+  };
 
   // Live polling for attendance records when session is active
   useEffect(() => {
@@ -379,6 +490,14 @@ export default function Attendance() {
       }
     };
   }, [activeSession?.id]);
+
+  // Admin: Auto-refresh all active sessions every 10 seconds
+  useEffect(() => {
+    if (user?.role !== 'admin' || selectedSessionId) return;
+
+    const interval = setInterval(refreshAllSessions, 10000);
+    return () => clearInterval(interval);
+  }, [user?.role, selectedSessionId, classes]);
 
   // Start attendance session
   const handleStartSession = async () => {
@@ -601,7 +720,7 @@ export default function Attendance() {
       )}
 
       {/* Admin spectate notice */}
-      {isAdmin && !activeSession && (
+      {isAdmin && allActiveSessions.length === 0 && !selectedSessionId && (
         <Card className="border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -611,13 +730,114 @@ export default function Attendance() {
               <div>
                 <p className="font-medium text-blue-700 dark:text-blue-400">Spectate Mode</p>
                 <p className="text-sm text-muted-foreground">
-                  As an admin, you can view active sessions but cannot start or end them.
-                  Only mentors can control attendance sessions for their classes.
+                  No active sessions at the moment. Sessions will appear here when mentors start them.
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Admin: All Active Sessions Grid */}
+      {isAdmin && !selectedSessionId && allActiveSessions.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-green-500 animate-pulse" />
+              <h2 className="text-lg font-semibold">{allActiveSessions.length} Active Session{allActiveSessions.length !== 1 ? 's' : ''}</h2>
+            </div>
+            <Button variant="outline" size="sm" onClick={refreshAllSessions}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {allActiveSessions.map((session) => (
+              <Card 
+                key={session.id} 
+                className="cursor-pointer hover:border-primary/50 transition-colors border-green-500/30 bg-green-50/30 dark:bg-green-950/10"
+                onClick={() => handleSelectSession(session.id)}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                      {session.class_name}
+                    </CardTitle>
+                    <Badge variant="outline" className="text-xs">Active</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="text-sm text-muted-foreground">
+                      Started: {new Date(session.start_time).toLocaleTimeString()}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded">
+                        <div className="text-lg font-bold text-green-700 dark:text-green-400">{session.stats?.present || 0}</div>
+                        <div className="text-xs text-green-600 dark:text-green-500">Present</div>
+                      </div>
+                      <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded">
+                        <div className="text-lg font-bold text-yellow-700 dark:text-yellow-400">{session.stats?.late || 0}</div>
+                        <div className="text-xs text-yellow-600 dark:text-yellow-500">Late</div>
+                      </div>
+                      <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded">
+                        <div className="text-lg font-bold text-red-700 dark:text-red-400">{session.stats?.absent || 0}</div>
+                        <div className="text-xs text-red-600 dark:text-red-500">Absent</div>
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" className="w-full">
+                      View Details
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Admin: Selected Session Detail View */}
+      {isAdmin && selectedSessionId && activeSession && (
+        <div className="space-y-4">
+          <Button variant="ghost" size="sm" onClick={handleBackToAllSessions}>
+            ← Back to All Sessions
+          </Button>
+          <Card className="border-green-500/50 bg-green-50/50 dark:bg-green-950/20">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <span className="h-3 w-3 rounded-full bg-green-500 animate-pulse" />
+                  {(activeSession as ActiveSessionWithClass).class_name || 'Active Session'} (Viewing)
+                </CardTitle>
+                <Badge variant="outline">
+                  Started {new Date(activeSession.start_time).toLocaleTimeString()}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {/* Recognition Window Status */}
+                <RecognitionWindowIndicator sessionId={activeSession.id} />
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                    <div className="text-2xl font-bold text-green-700 dark:text-green-400">{stats.present}</div>
+                    <div className="text-xs text-green-600 dark:text-green-500">Present</div>
+                  </div>
+                  <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                    <div className="text-2xl font-bold text-red-700 dark:text-red-400">{stats.absent}</div>
+                    <div className="text-xs text-red-600 dark:text-red-500">Absent</div>
+                  </div>
+                  <div className="text-center p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
+                    <div className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">{stats.late}</div>
+                    <div className="text-xs text-yellow-600 dark:text-yellow-500">Late</div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Session Control - Only for mentors */}
@@ -698,69 +918,8 @@ export default function Attendance() {
         </Card>
       )}
 
-      {/* Admin view - Show active session stats without controls */}
-      {isAdmin && activeSession && (
-        <Card className="border-green-500/50 bg-green-50/50 dark:bg-green-950/20">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-green-500 animate-pulse" />
-                Active Session (Viewing)
-              </CardTitle>
-              <Badge variant="outline">
-                {classes.find(c => c.id === activeSession.class_id)?.name || 'Class'}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Recognition Window Status */}
-              <RecognitionWindowIndicator sessionId={activeSession.id} />
-
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                  <div className="text-2xl font-bold text-green-700 dark:text-green-400">{stats.present}</div>
-                  <div className="text-xs text-green-600 dark:text-green-500">Present</div>
-                </div>
-                <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
-                  <div className="text-2xl font-bold text-red-700 dark:text-red-400">{stats.absent}</div>
-                  <div className="text-xs text-red-600 dark:text-red-500">Absent</div>
-                </div>
-                <div className="text-center p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
-                  <div className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">{stats.late}</div>
-                  <div className="text-xs text-yellow-600 dark:text-yellow-500">Late</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Class selector for admin to view sessions */}
-      {isAdmin && !activeSession && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Select Class to View</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Select value={selectedClass} onValueChange={setSelectedClass}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a class to view its session" />
-              </SelectTrigger>
-              <SelectContent>
-                {classes.map((cls) => (
-                  <SelectItem key={cls.id} value={cls.id}>
-                    {cls.name} - {cls.day_of_week} {cls.schedule_time}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Records Table */}
-      {activeSession && (
+      {/* Records Table - Show for mentor active session OR admin selected session */}
+      {activeSession && (user?.role === 'mentor' || (user?.role === 'admin' && selectedSessionId)) && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">

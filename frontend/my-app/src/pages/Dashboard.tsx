@@ -4,7 +4,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { useNotificationContext } from '@/context/NotificationContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +12,6 @@ import {
   BookOpen,
   Users,
   Calendar,
-  Bell,
   Clock,
   MapPin,
   TrendingUp,
@@ -39,7 +37,6 @@ interface DashboardStats {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { notifications, unreadCount } = useNotificationContext();
   const [stats, setStats] = useState<DashboardStats>({
     courses: 0,
     classes: 0,
@@ -177,21 +174,15 @@ export default function Dashboard() {
     { title: 'Classes', value: stats.classes, icon: Calendar, color: 'text-purple-600' },
     { title: 'Students', value: stats.students, icon: Users, color: 'text-green-600' },
     { title: 'Mentors', value: stats.mentors, icon: GraduationCap, color: 'text-indigo-600' },
-    { title: 'Notifications', value: unreadCount, icon: Bell, color: 'text-orange-600' },
   ] : user?.role === 'mentor' ? [
     { title: 'My Courses', value: stats.courses, icon: BookOpen, color: 'text-blue-600' },
     { title: 'My Classes', value: stats.classes, icon: Calendar, color: 'text-purple-600' },
     { title: 'My Students', value: stats.students, icon: Users, color: 'text-green-600' },
-    { title: 'Notifications', value: unreadCount, icon: Bell, color: 'text-orange-600' },
   ] : [
     // Student: only show their enrolled courses and classes
     { title: 'My Courses', value: stats.courses, icon: BookOpen, color: 'text-blue-600' },
     { title: 'My Classes', value: stats.classes, icon: Calendar, color: 'text-purple-600' },
-    { title: 'Notifications', value: unreadCount, icon: Bell, color: 'text-orange-600' },
   ];
-
-  // Recent notifications (last 3)
-  const recentNotifications = notifications.slice(0, 3);
 
   return (
     <div className="space-y-6">
@@ -217,9 +208,9 @@ export default function Dashboard() {
       )}
 
       {/* Stats Grid */}
-      <div className={`grid gap-4 grid-cols-2 ${user?.role === 'admin' ? 'lg:grid-cols-5' : user?.role === 'mentor' ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
+      <div className={`grid gap-4 grid-cols-2 ${user?.role === 'admin' ? 'lg:grid-cols-4' : user?.role === 'mentor' ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
         {isLoading ? (
-          Array.from({ length: user?.role === 'admin' ? 5 : user?.role === 'mentor' ? 4 : 3 }).map((_, i) => <CardSkeleton key={i} />)
+          Array.from({ length: user?.role === 'admin' ? 4 : user?.role === 'mentor' ? 3 : 2 }).map((_, i) => <CardSkeleton key={i} />)
         ) : (
           statCards.map((stat) => (
             <Card key={stat.title}>
@@ -383,40 +374,6 @@ export default function Dashboard() {
                     </Link>
                   </Button>
                 </>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Recent Notifications */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium">Recent Notifications</CardTitle>
-                {unreadCount > 0 && (
-                  <Badge variant="destructive" className="h-5 px-1.5">
-                    {unreadCount}
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              {recentNotifications.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">No notifications</p>
-              ) : (
-                <div className="space-y-3">
-                  {recentNotifications.map((notification) => (
-                    <div
-                      key={notification.id}
-                      className={`text-sm p-2 rounded ${!notification.is_read ? 'bg-primary/5' : ''}`}
-                    >
-                      <p className="font-medium truncate">{notification.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">{notification.message}</p>
-                    </div>
-                  ))}
-                  <Button variant="ghost" size="sm" className="w-full" asChild>
-                    <Link to="/notifications">View All</Link>
-                  </Button>
-                </div>
               )}
             </CardContent>
           </Card>

@@ -29,6 +29,21 @@ router = APIRouter()
 
 # ==================== Session Management ====================
 
+@router.get("/sessions/active")
+def get_all_active_sessions(
+    current_user: User = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db_session)
+):
+    """
+    Get all currently active sessions (admin only).
+    Used for admin multi-session spectating view.
+    """
+    from ..repositories.session_repository import SessionRepository
+    session_repo = SessionRepository(db)
+    sessions = session_repo.find_active_sessions()
+    return [AttendanceSessionResponse.model_validate(s) for s in sessions]
+
+
 @router.post("/sessions/start", response_model=AttendanceSessionResponse, status_code=status.HTTP_201_CREATED)
 def start_session(
     request: StartSessionRequest,
@@ -247,18 +262,3 @@ def get_recognition_window_status(
         return service.get_recognition_window_status(session_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-
-
-@router.get("/sessions/active")
-def get_all_active_sessions(
-    current_user: User = Depends(require_role(["admin"])),
-    db: Session = Depends(get_db_session)
-):
-    """
-    Get all currently active sessions (admin only).
-    Used for admin multi-session spectating view.
-    """
-    from ..repositories.session_repository import SessionRepository
-    session_repo = SessionRepository(db)
-    sessions = session_repo.find_active_sessions()
-    return [AttendanceSessionResponse.model_validate(s) for s in sessions]

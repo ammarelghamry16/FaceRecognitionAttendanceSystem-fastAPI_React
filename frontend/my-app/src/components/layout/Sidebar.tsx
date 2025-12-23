@@ -4,7 +4,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { useNotificationContext } from '@/context/NotificationContext';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { cn } from '@/lib/utils';
 import {
@@ -12,7 +11,6 @@ import {
   BookOpen,
   Calendar,
   CalendarDays,
-  Bell,
   LogOut,
   CheckSquare,
   Camera,
@@ -26,7 +24,6 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   AlertDialog,
@@ -102,12 +99,6 @@ const navItems: NavItem[] = [
     roles: ['student', 'admin'],
     iconColor: 'text-pink-500',
   },
-  {
-    title: 'Notifications',
-    href: '/notifications',
-    icon: Bell,
-    iconColor: 'text-yellow-500',
-  },
 ];
 
 const bottomItems: NavItem[] = [
@@ -127,7 +118,6 @@ export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { unreadCount } = useNotificationContext();
   const [isExpanded, setIsExpanded] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -185,8 +175,6 @@ export default function Sidebar() {
 
   const NavLink = ({ item, mobile = false }: { item: NavItem; mobile?: boolean }) => {
     const isActive = location.pathname === item.href;
-    // Show unread count for notifications
-    const badgeCount = item.href === '/notifications' ? unreadCount : item.badge;
     const showText = mobile || showFull;
 
     return (
@@ -202,10 +190,6 @@ export default function Sidebar() {
         {/* Fixed icon container - always same width */}
         <div className="w-10 h-10 flex items-center justify-center shrink-0 relative">
           <item.icon className={cn('h-5 w-5', item.iconColor)} />
-          {/* Badge dot when collapsed */}
-          {!showText && badgeCount && badgeCount > 0 && (
-            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
-          )}
         </div>
         {/* Text that appears/disappears */}
         <div className={cn(
@@ -213,11 +197,6 @@ export default function Sidebar() {
           showText ? 'w-auto opacity-100 pr-3' : 'w-0 opacity-0'
         )}>
           <span className="whitespace-nowrap">{item.title}</span>
-          {badgeCount && badgeCount > 0 && (
-            <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs">
-              {badgeCount > 99 ? '99+' : badgeCount}
-            </Badge>
-          )}
         </div>
       </Link>
     );
